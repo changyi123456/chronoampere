@@ -1,0 +1,17 @@
+/* 嵌入字型：內文 Noto Sans TC、科幻標題 Orbitron */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Orbitron:wght@500;700;900&display=swap');
+
+:root {
+  --font-body: 'Noto Sans TC', system-ui, 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  --font-display: 'Orbitron', 'Noto Sans TC', system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+body {
+  background: #04060d;
+  color: #e7eef7;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+button { font-family: var(--font-body); }
+input[type='range'] { height: 18px; }
