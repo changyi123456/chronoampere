@@ -12,6 +12,7 @@ import {
 } from '../story/script'
 import { COLORS } from '../theme'
 import * as audio from '../game/audio'
+import { setTouchMove, isCoarsePointer } from '../game/touch'
 
 const CH_IDS = CHALLENGE_ORDER
 function isChallenge(s: Scene): s is ChallengeId { return (CH_IDS as string[]).includes(s) }
@@ -86,6 +87,7 @@ function IntroOverlay() {
 function HubOverlay() {
   const { solvedCount, allSolved, nearDoor, setScene, resetProgress, setDialogue, setJournalOpen, muted, toggleMuted } = useGame()
   const mobile = useIsMobile()
+  const coarse = isCoarsePointer()
   return (
     <>
       <div style={{ ...topBar, ...(mobile ? mTop : null), pointerEvents: 'auto' }}>
@@ -97,14 +99,19 @@ function HubOverlay() {
         <button style={miniBtn} onClick={resetProgress}>重置進度</button>
       </div>
 
-      {/* RPG 工具列 */}
-      <div style={{ position: 'absolute', bottom: 24, left: 24, display: 'flex', gap: 10, pointerEvents: 'auto' }}>
+      {/* RPG 工具列（觸控時移到右下，避開左下虛擬搖桿） */}
+      <div style={{ position: 'absolute', bottom: 24, ...(coarse ? { right: 24 } : { left: 24 }), display: 'flex', flexDirection: coarse ? 'column' : 'row', gap: 10, pointerEvents: 'auto' }}>
         <button style={rpgBtn(COLORS.amber)} onClick={() => setJournalOpen(true)}>▤ 任務日誌</button>
         <button style={rpgBtn(COLORS.teal)} onClick={() => setDialogue(GUIDE)}>◇ 呼叫 AMP</button>
       </div>
 
+      {/* 手機/平板：虛擬搖桿移動主角 */}
+      {coarse && <TouchJoystick />}
+
       {nearDoor && (
-        <div style={prompt}>按 <kbd style={kbd}>E</kbd> 進入：{CHALLENGES[nearDoor].title}</div>
+        <div style={prompt}>
+          {coarse ? <>點一下 <b style={{ color: COLORS.amber }}>{CHALLENGES[nearDoor].title}</b> 之門進入</> : <>按 <kbd style={kbd}>E</kbd> 進入：{CHALLENGES[nearDoor].title}</>}
+        </div>
       )}
       {allSolved && (
         <div style={{ ...centerBottom, pointerEvents: 'auto' }}>
@@ -420,6 +427,49 @@ function JournalLayer() {
         })}
       </div>
     </Fill>
+  )
+}
+
+// ── 虛擬搖桿（手機/平板移動主角） ─────────────────────────────────────────
+function TouchJoystick() {
+  const BASE = 58, KNOB = 26, MAX = BASE - KNOB
+  const [active, setActive] = useState(false)
+  const [k, setK] = useState({ x: 0, y: 0 })
+  const baseRef = useRef<HTMLDivElement>(null)
+  const center = useRef({ x: 0, y: 0 })
+
+  const apply = (cx: number, cy: number) => {
+    let dx = cx - center.current.x, dy = cy - center.current.y
+    const len = Math.hypot(dx, dy)
+    if (len > MAX) { dx = (dx / len) * MAX; dy = (dy / len) * MAX }
+    setK({ x: dx, y: dy })
+    // 螢幕右 → 世界 +x；螢幕上 → 世界 -z（朝場景深處＝前進）
+    setTouchMove(dx / MAX, dy / MAX)
+  }
+  const start = (e: React.PointerEvent) => {
+    const r = baseRef.current!.getBoundingClientRect()
+    center.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+    setActive(true); apply(e.clientX, e.clientY)
+  }
+  const move = (e: React.PointerEvent) => { if (active) apply(e.clientX, e.clientY) }
+  const end = () => { setActive(false); setK({ x: 0, y: 0 }); setTouchMove(0, 0) }
+
+  return (
+    <div ref={baseRef} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+      style={{
+        position: 'absolute', left: 24, bottom: 30, width: BASE * 2, height: BASE * 2, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(12,20,38,0.5) 60%, rgba(12,20,38,0.25) 100%)',
+        border: '1.5px solid rgba(94,234,212,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+        touchAction: 'none', pointerEvents: 'auto', zIndex: 60, boxShadow: '0 0 18px rgba(94,234,212,0.25)',
+      }}>
+      <div style={{
+        position: 'absolute', left: '50%', top: '50%', width: KNOB * 2, height: KNOB * 2,
+        marginLeft: -KNOB, marginTop: -KNOB, transform: `translate(${k.x}px, ${k.y}px)`, borderRadius: '50%',
+        background: active ? 'rgba(94,234,212,0.9)' : 'rgba(94,234,212,0.55)',
+        boxShadow: '0 0 16px rgba(94,234,212,0.7)', transition: active ? 'none' : 'transform 0.12s ease',
+      }} />
+    </div>
   )
 }
 

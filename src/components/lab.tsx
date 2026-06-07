@@ -82,14 +82,33 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
   const [drag, setDrag] = useState(false)
   const x = (frac - 0.5) * (length - 0.4)
   const draggable = !!onFrac
+  const planeZ = pos[2]
 
+  // 射線與滑軌 Z 平面求交 → 取世界 x，換算滑塊比例（手指移出滑塊仍持續追蹤）
+  const fracAt = (e: ThreeEvent<PointerEvent>): number | null => {
+    const r = e.ray, dz = r.direction.z
+    if (Math.abs(dz) < 1e-6) return null
+    const t = (planeZ - r.origin.z) / dz
+    if (t < 0) return null
+    const px = r.origin.x + r.direction.x * t
+    return Math.min(Math.max((px - pos[0]) / (length - 0.4) + 0.5, 0), 1)
+  }
+  const down = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation()
+    ;(e.target as unknown as { setPointerCapture?: (id: number) => void }).setPointerCapture?.(e.pointerId)
+    setDrag(true); onDragState?.(true); document.body.style.cursor = 'grabbing'
+    const f = fracAt(e); if (f !== null) onFrac?.(f)
+  }
   const move = (e: ThreeEvent<PointerEvent>) => {
     if (!drag) return
     e.stopPropagation()
-    const f = Math.min(Math.max((e.point.x - pos[0]) / (length - 0.4) + 0.5, 0), 1)
-    onFrac?.(f)
+    const f = fracAt(e); if (f !== null) onFrac?.(f)
   }
-  const end = () => { if (drag) { setDrag(false); onDragState?.(false) } }
+  const end = (e: ThreeEvent<PointerEvent>) => {
+    if (!drag) return
+    ;(e.target as unknown as { releasePointerCapture?: (id: number) => void }).releasePointerCapture?.(e.pointerId)
+    setDrag(false); onDragState?.(false); document.body.style.cursor = 'default'
+  }
 
   return (
     <group position={pos}>
@@ -98,28 +117,25 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
       <mesh position={[-length / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.22, 0.22, 0.12, 16]} /><meshStandardMaterial color={PLASTIC} /></mesh>
       <mesh position={[length / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.22, 0.22, 0.12, 16]} /><meshStandardMaterial color={PLASTIC} /></mesh>
       <Post pos={[-length / 2, 0.34, 0]} />
-      {/* 滑塊（可拖） */}
+      {/* 整條滑軌即觸控命中區（按軌道任一點即跳到該處，並可直接拖） */}
+      {draggable && (
+        <mesh position={[0, 0.34, 0]} onPointerDown={down} onPointerMove={move} onPointerUp={end}
+          onPointerOver={() => (document.body.style.cursor = 'grab')}
+          onPointerOut={() => { if (!drag) document.body.style.cursor = 'default' }}>
+          <boxGeometry args={[length, 0.5, 0.5]} />
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        </mesh>
+      )}
+      {/* 滑塊（視覺） */}
       <group position={[x, 0.32, 0]}>
-        <mesh
-          castShadow
-          onPointerDown={draggable ? (e) => { e.stopPropagation(); setDrag(true); onDragState?.(true) } : undefined}
-          onPointerOver={draggable ? () => (document.body.style.cursor = 'grab') : undefined}
-          onPointerOut={draggable ? () => (document.body.style.cursor = 'default') : undefined}
-        >
+        <mesh castShadow>
           <boxGeometry args={[0.22, 0.34, 0.26]} />
           <meshStandardMaterial color={drag ? '#ffd36b' : STEEL} emissive={drag ? '#ffae42' : '#000'} emissiveIntensity={drag ? 0.5 : 0} metalness={0.6} roughness={0.35} />
         </mesh>
         <Post pos={[0, 0.3, 0]} />
       </group>
-      {/* 拖曳時的捕捉平面 */}
-      {drag && (
-        <mesh position={[0, 0.3, 0]} onPointerMove={move} onPointerUp={end} onPointerLeave={end}>
-          <planeGeometry args={[40, 20]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
-      )}
       <Html position={[0, -0.42, 0]} center distanceFactor={13}>
-        <div style={labelStyle('#9a7b3a')}>{label}{draggable ? '（可拖曳滑塊）' : ''}</div>
+        <div style={labelStyle('#9a7b3a')}>{label}{draggable ? '（拖曳或點按滑軌）' : ''}</div>
       </Html>
     </group>
   )
@@ -233,38 +249,62 @@ export function Knob({ pos, value, min, max, step, onChange, onDragState, label,
 }) {
   const [drag, setDrag] = useState(false)
   const last = useRef(0)
-  const cx = pos[0], cy = pos[1]
+  const cx = pos[0], cy = pos[1], planeZ = pos[2]
   const frac = Math.min(1, Math.max(0, (value - min) / (max - min)))
   const ang = (-0.75 + frac * 1.5) * Math.PI
   const norm = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a }
   const set = (v: number) => { const cl = Math.min(max, Math.max(min, v)); onChange(+(Math.round(cl / step) * step).toFixed(6)) }
-  const down = (e: ThreeEvent<PointerEvent>) => { e.stopPropagation(); setDrag(true); last.current = Math.atan2(e.point.y - cy, e.point.x - cx); onDragState?.(true); document.body.style.cursor = 'grabbing' }
-  const move = (e: ThreeEvent<PointerEvent>) => { if (!drag) return; e.stopPropagation(); const a = Math.atan2(e.point.y - cy, e.point.x - cx); const d = norm(a - last.current); last.current = a; set(value - (d / (2 * Math.PI)) * (max - min)) }
-  const end = () => { if (drag) { setDrag(false); onDragState?.(false); document.body.style.cursor = 'default' } }
+  // 以射線與旋鈕所在 Z 平面求交點 → 即使手指移出旋鈕仍能穩定取角（觸控順暢關鍵）
+  const angleAt = (e: ThreeEvent<PointerEvent>): number | null => {
+    const r = e.ray, dz = r.direction.z
+    if (Math.abs(dz) < 1e-6) return null
+    const t = (planeZ - r.origin.z) / dz
+    if (t < 0) return null
+    return Math.atan2(r.origin.y + r.direction.y * t - cy, r.origin.x + r.direction.x * t - cx)
+  }
+  const down = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation()
+    ;(e.target as unknown as { setPointerCapture?: (id: number) => void }).setPointerCapture?.(e.pointerId)
+    const a = angleAt(e); if (a !== null) last.current = a
+    setDrag(true); onDragState?.(true); document.body.style.cursor = 'grabbing'
+  }
+  const move = (e: ThreeEvent<PointerEvent>) => {
+    if (!drag) return
+    e.stopPropagation()
+    const a = angleAt(e); if (a === null) return
+    const d = norm(a - last.current); last.current = a
+    set(value - (d / (2 * Math.PI)) * (max - min))
+  }
+  const end = (e: ThreeEvent<PointerEvent>) => {
+    if (!drag) return
+    ;(e.target as unknown as { releasePointerCapture?: (id: number) => void }).releasePointerCapture?.(e.pointerId)
+    setDrag(false); onDragState?.(false); document.body.style.cursor = 'default'
+  }
   return (
     <group position={pos}>
       {/* 底座 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.05]}><cylinderGeometry args={[size * 1.28, size * 1.32, 0.12, 28]} /><meshStandardMaterial color="#1b2230" metalness={0.6} roughness={0.45} /></mesh>
       {/* 刻度環 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.06]}><torusGeometry args={[size * 1.05, 0.025, 8, 40]} /><meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.5} toneMapped={false} /></mesh>
-      {/* 旋鈕本體（繞圈拖曳） */}
+      {/* 旋鈕本體 + 放大的隱形觸控命中區（繞圈拖曳；指標捕捉所有移動/放開） */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.12]}
-        onPointerDown={down}
+        onPointerDown={down} onPointerMove={move} onPointerUp={end}
         onWheel={(e) => { e.stopPropagation(); set(value - Math.sign((e as unknown as WheelEvent).deltaY) * step) }}
         onPointerOver={() => (document.body.style.cursor = 'grab')}
         onPointerOut={() => { if (!drag) document.body.style.cursor = 'default' }} castShadow>
         <cylinderGeometry args={[size, size, 0.22, 30]} />
         <meshStandardMaterial color={drag ? '#3a4a63' : '#2a3447'} metalness={0.75} roughness={0.3} emissive={accent} emissiveIntensity={drag ? 0.5 : 0.16} />
       </mesh>
+      {/* 放大隱形觸控盤（手指好按、好拖） */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.24]}
+        onPointerDown={down} onPointerMove={move} onPointerUp={end}>
+        <cylinderGeometry args={[size * 1.5, size * 1.5, 0.02, 24]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
       {/* 指標 */}
       <group rotation={[0, 0, -ang]}>
         <mesh position={[0, size * 0.64, 0.25]}><boxGeometry args={[0.07, size * 0.5, 0.05]} /><meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={1.5} toneMapped={false} /></mesh>
       </group>
-      {drag && (
-        <mesh position={[0, 0, 0.6]} onPointerMove={move} onPointerUp={end} onPointerLeave={end}>
-          <planeGeometry args={[100, 70]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} />
-        </mesh>
-      )}
       <Html position={[0, -size - 0.34, 0]} center distanceFactor={12} occlude={false}>
         <div style={knobLabel(accent)}>{label} {value.toFixed(step < 1 ? 2 : 0)}{unit}</div>
       </Html>

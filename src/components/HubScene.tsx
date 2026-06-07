@@ -11,6 +11,7 @@ import {
 import * as THREE from 'three'
 import { useGame } from '../store/store'
 import { useKeyboard } from '../game/useKeyboard'
+import { touch } from '../game/touch'
 import { CHALLENGE_ORDER, CHALLENGES } from '../story/script'
 import type { ChallengeId } from '../story/script'
 import { DOOR_RADIUS } from '../theme'
@@ -190,12 +191,14 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
     const g = player.current
     if (!g) return
     const k = keys.current
-    const dx = (k.right ? 1 : 0) - (k.left ? 1 : 0)
-    const dz = (k.backward ? 1 : 0) - (k.forward ? 1 : 0)
-    const len = Math.hypot(dx, dz) || 1
+    // 合併鍵盤（離散）與觸控搖桿（類比）輸入
+    let mx = (k.right ? 1 : 0) - (k.left ? 1 : 0) + touch.x
+    let mz = (k.backward ? 1 : 0) - (k.forward ? 1 : 0) + touch.z
+    const mag = Math.hypot(mx, mz)
+    if (mag > 1) { mx /= mag; mz /= mag }
     const SPEED = 6.5
-    g.position.x += (dx / len) * (dx || dz ? SPEED * dt : 0)
-    g.position.z += (dz / len) * (dx || dz ? SPEED * dt : 0)
+    g.position.x += mx * SPEED * dt
+    g.position.z += mz * SPEED * dt
     const R = 11.5
     const d = Math.hypot(g.position.x, g.position.z)
     if (d > R) { g.position.x *= R / d; g.position.z *= R / d }
@@ -205,8 +208,9 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
     for (const door of doors) { const dist = g.position.distanceTo(door.pos); if (dist < bestDist) { bestDist = dist; best = door.id } }
     const near = bestDist < 2.6 ? best : null
     if (near !== nearDoor) setNearDoor(near)
-    if (k.interact && !interactLatch.current && near) { interactLatch.current = true; setScene(near) }
-    if (!k.interact) interactLatch.current = false
+    const interact = k.interact || touch.interact
+    if (interact && !interactLatch.current && near) { interactLatch.current = true; setScene(near) }
+    if (!interact) interactLatch.current = false
 
     const target = new THREE.Vector3(g.position.x, g.position.y + 7.5, g.position.z + 10)
     camera.position.lerp(target, 1 - Math.pow(0.0015, dt))
