@@ -15,3 +15,12 @@ body {
 }
 button { font-family: var(--font-body); }
 input[type='range'] { height: 18px; }
+
+/* 進關年代字卡：淡入 → 停留 → 淡出 */
+.era-card { opacity: 0; animation: eraCard 4.6s ease forwards; }
+@keyframes eraCard {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.98); filter: blur(6px); }
+  12%  { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  78%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
+}

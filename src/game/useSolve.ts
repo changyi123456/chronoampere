@@ -1,13 +1,12 @@
 // ============================================================================
 // useSolve.ts — 多重條件判定：每關需「同時」滿足數個物理條件。
-// 回傳條件清單 conds（每條 label + ok），HUD 即時勾選；
-// targetMet = 所有條件皆 ok（靜態，由滑桿值決定）。
-// 各關的「動態」條件（升溫穩定/存活/命中/通電到位）仍由關卡自行 AND 進去。
+// e/m 關額外吃 emLog（測量數據記錄）→ COV 探究條件。
 // ============================================================================
 import type { ChallengeId } from '../story/script'
 import {
-  lampCurrent, splitCurrents, emRadius, crtDeflect, emfMax, v2Peak,
+  lampSteady, splitCurrents, emRadius, emMeasurementOK, crtDeflect, emfMax, v2Peak,
   CIRCUIT, SPLIT, EM, CRT, INDUCTION, XFMR,
+  type EmSample,
 } from './physics'
 
 export interface Cond { label: string; ok: boolean }
@@ -22,13 +21,13 @@ function pack(conds: Cond[]): SolveResult {
   return { conds, targetMet: met === conds.length, sync: Math.round((met / conds.length) * 100) }
 }
 
-export function getSolve(id: ChallengeId, v: Record<string, number>): SolveResult {
+export function getSolve(id: ChallengeId, v: Record<string, number>, emLog: EmSample[] = []): SolveResult {
   switch (id) {
     case 'lamp': {
-      const I = lampCurrent(v.lamp_eps, v.lamp_rv)
+      const { I } = lampSteady(v.lamp_eps, v.lamp_rv)
       return pack([
         { label: `電源 ε = ${CIRCUIT.epsTarget} V`, ok: Math.abs(v.lamp_eps - CIRCUIT.epsTarget) <= CIRCUIT.epsTol },
-        { label: `主燈電流 I = ${CIRCUIT.iRated} A`, ok: Math.abs(I - CIRCUIT.iRated) <= CIRCUIT.tol },
+        { label: `穩態電流 I = ${CIRCUIT.iRated} A`, ok: Math.abs(I - CIRCUIT.iRated) <= CIRCUIT.tol },
       ])
     }
     case 'split': {
@@ -44,6 +43,7 @@ export function getSolve(id: ChallengeId, v: Record<string, number>): SolveResul
       return pack([
         { label: `加速電壓 V = ${EM.VaccTarget} V`, ok: Math.abs(v.emacc_V - EM.VaccTarget) <= EM.VaccTol },
         { label: `電子束半徑 r = ${(EM.rTarget * 100).toFixed(1)} cm`, ok: Math.abs(r - EM.rTarget) <= EM.rTol },
+        { label: `記錄 ${EM.samplesNeeded} 組數據，平均 e/m 在理論值 ±10%`, ok: emMeasurementOK(emLog) },
       ])
     }
     case 'maglock': {

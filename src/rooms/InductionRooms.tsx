@@ -1,7 +1,7 @@
 // ============================================================================
-// InductionRooms.tsx — Ch3 電磁感應（實驗器材 + 多重條件）
-//   DynamoRoom: 交流發電機。條件①峰值 ε_max=10.5V②頻率 ω 在 9–11 rad/s。
-//   XfmrRoom  : 變壓器。條件①初級 V1=120V（市電）②次級 V2=12V。
+// InductionRooms.tsx — Ch3 電磁感應
+//   DynamoRoom: 交流發電機。示波器同屏 ε(t) 與 φ(t)：看見 90° 相位差。
+//   XfmrRoom  : 變壓器 + 次級負載（電流比 / 功率守恆讀數）。
 // ============================================================================
 import { useEffect, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -10,7 +10,7 @@ import * as THREE from 'three'
 import { RoomShell } from '../components/RoomShell'
 import { CoilHelix, DialMeter, SupplyBox, Lead } from '../components/lab'
 import { useGame } from '../store/store'
-import { emfMax, emfAt, v2Peak, xfmrPrimaryAt, xfmrSecondaryAt, INDUCTION, XFMR } from '../game/physics'
+import { emfMax, emfAt, fluxAt, v2Peak, xfmrPrimaryAt, xfmrSecondaryAt, xfmrLoad, INDUCTION, XFMR } from '../game/physics'
 import { resetLive, pushSample, live } from '../game/live'
 import { useSettle } from '../game/useSettle'
 
@@ -35,7 +35,8 @@ export function DynamoRoom() {
 
   useEffect(() => {
     theta.current = 0; t.current = 0
-    resetLive({ aLabel: '感應電動勢 ε(t)', aColor: '#1f6feb', yMin: -16, yMax: 16, yUnit: 'V', targetY: INDUCTION.targetEmf })
+    // 雙曲線同屏：ε(t) 與 φ(t)（×8 放大）── 看見 90° 相位差：「磁通為零時，電動勢最大」
+    resetLive({ aLabel: '感應電動勢 ε(t)', aColor: '#1f6feb', bLabel: `磁通 φ(t)（×${INDUCTION.fluxPlotScale}）`, bColor: '#f59e0b', yMin: -16, yMax: 16, yUnit: 'V', targetY: INDUCTION.targetEmf })
   }, [resetToken])
 
   useFrame(() => {
@@ -47,13 +48,18 @@ export function DynamoRoom() {
       t.current += 1 / 60
       if (emOK && wOK && settle(`${NRef.current}|${wRef.current}`, dragging)) { live.status = 'done'; setSolved('dynamo') }
       frame.current++
-      if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +emfAt(NRef.current, wRef.current, t.current).toFixed(2) })
+      if (frame.current % 2 === 0) pushSample({
+        t: +t.current.toFixed(2),
+        a: +emfAt(NRef.current, wRef.current, t.current).toFixed(2),
+        b: +(fluxAt(NRef.current, wRef.current, t.current) * INDUCTION.fluxPlotScale).toFixed(2),
+      })
     }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
     if (live.status !== 'done') live.readout = [
       `匝數 N = ${NRef.current.toFixed(0)}　轉速 ω = ${wRef.current.toFixed(1)} ${wOK ? '✓' : `（需 ${INDUCTION.wLo}-${INDUCTION.wHi}）`}`,
       `峰值 ε_max = ${em.toFixed(2)} V ${emOK ? '✓' : `（需 ${INDUCTION.targetEmf}）`}`,
       `瞬時 ε(t) = ${emfAt(NRef.current, wRef.current, t.current).toFixed(2)} V`,
+      '觀察示波器：φ 過零的瞬間，ε 恰為峰值（相位差 90°）',
     ]
     if (coil.current) coil.current.rotation.x = theta.current
     if (galv.current) galv.current.rotation.z = Math.min(Math.max(emfAt(NRef.current, wRef.current, t.current) / 16, -1), 1) * 0.8
@@ -61,7 +67,7 @@ export function DynamoRoom() {
 
   const w = 1.2, h = 0.8, gy = 1.5
   return (
-    <RoomShell accent="#1f6feb" camera={[0, 2.6, 9]}>
+    <RoomShell era="dynamo" accent="#1f6feb" camera={[0, 2.6, 9]}>
       <mesh position={[0, gy + 1.15, 0]} castShadow><boxGeometry args={[2.4, 0.6, 1.6]} /><meshStandardMaterial color="#d23b3b" metalness={0.3} roughness={0.5} /></mesh>
       <mesh position={[0, gy - 1.15, 0]} castShadow><boxGeometry args={[2.4, 0.6, 1.6]} /><meshStandardMaterial color="#2f6fe0" metalness={0.3} roughness={0.5} /></mesh>
       <Html position={[1.4, gy + 1.15, 0]} center distanceFactor={13}><div style={lab('#d23b3b')}>N 極</div></Html>
@@ -116,10 +122,12 @@ export function XfmrRoom() {
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +xfmrPrimaryAt(t.current, v1).toFixed(1), b: +xfmrSecondaryAt(n2, t.current, v1).toFixed(1) })
     }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
+    const ld = xfmrLoad(n2, v1)
     if (live.status !== 'done') live.readout = [
-      `初級 V1 = ${v1.toFixed(0)} V ${v1OK ? '✓' : '（需 120）'}　N1 = ${XFMR.n1}`,
-      `次級 N2 = ${n2.toFixed(0)}`,
+      `初級 V1 = ${v1.toFixed(0)} V ${v1OK ? '✓' : '（需 120）'}　N1 = ${XFMR.n1}　N2 = ${n2.toFixed(0)}`,
       `次級峰值 V2 = ${v2pk.toFixed(2)} V ${v2OK ? '✓' : '（需 12）'}`,
+      `負載 ${XFMR.rLoad} Ω：I2 = ${ld.i2.toFixed(2)} A，I1 = ${ld.i1.toFixed(3)} A（電流比 = N2/N1，降壓→升流）`,
+      `功率守恆：P ≈ ${ld.p.toFixed(1)} W（V1·I1 = V2·I2，理想無損）　※波形已放慢 75 倍顯示`,
     ]
     const ph = Math.abs(Math.sin(XFMR.omega * t.current))
     if (priMat.current) priMat.current.emissiveIntensity = 0.15 + ph * Math.min(v1 / 120, 1.2) * 0.7
@@ -130,7 +138,7 @@ export function XfmrRoom() {
   const secTurns = Math.max(4, Math.round((values.xfmr_n2 / 120) * 18))
   const LX = -1.6, RX = 1.6
   return (
-    <RoomShell accent="#6f6fe0" camera={[0, 2.6, 9]}>
+    <RoomShell era="xfmr" accent="#6f6fe0" camera={[0, 2.6, 9]}>
       <mesh position={[LX, 1.7, 0]} castShadow><boxGeometry args={[0.32, 3, 0.5]} /><meshStandardMaterial color="#7a828d" metalness={0.85} roughness={0.35} /></mesh>
       <mesh position={[RX, 1.7, 0]} castShadow><boxGeometry args={[0.32, 3, 0.5]} /><meshStandardMaterial color="#7a828d" metalness={0.85} roughness={0.35} /></mesh>
       <mesh position={[0, 3.05, 0]} castShadow><boxGeometry args={[3.5, 0.32, 0.5]} /><meshStandardMaterial color="#7a828d" metalness={0.85} roughness={0.35} /></mesh>

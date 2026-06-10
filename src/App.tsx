@@ -1,12 +1,13 @@
 // ============================================================================
-// App.tsx — 《方舟九十・ARK-90》3D 物理解謎海龜湯 RPG 主組裝
-//   Canvas（3D 場景路由）+ Hud（2D overlay）。狀態用外部 store（store.tsx）。
+// App.tsx — 3D 物理解謎海龜湯 RPG 主組裝
+//   Canvas（3D 場景路由）+ Effects（後製）+ Hud（2D overlay）。
 // ============================================================================
 import { useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGame } from './store/store'
 import { Hud } from './components/Hud'
+import { Effects } from './components/Effects'
 import { HubScene } from './components/HubScene'
 import { IntroScene } from './components/IntroScene'
 import { LampRoom, SplitRoom } from './rooms/CircuitRooms'
@@ -71,6 +72,7 @@ function Game() {
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', background: COLORS.bg }}>
       <Canvas shadows="soft" dpr={[1, 2]} gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }} camera={{ position: [0, 8, 12], fov: 55 }} style={{ position: "absolute", inset: 0 }}>
         <SceneRouter scene={scene} />
+        <Effects scene={scene} />
       </Canvas>
       <Hud />
     </div>

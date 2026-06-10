@@ -8,9 +8,11 @@ import { getSolve } from '../game/useSolve'
 import { live } from '../game/live'
 import {
   CHALLENGES, CHALLENGE_ORDER, FINALE, PROLOGUE,
+  SOUP_QUESTIONS, QUESTION_BUDGET,
   type ChallengeId, type ChallengeMeta, type Scene,
 } from '../story/script'
-import { COLORS } from '../theme'
+import { COLORS, ERAS } from '../theme'
+import { EM, emEstimate } from '../game/physics'
 import * as audio from '../game/audio'
 import { setTouchMove, isCoarsePointer } from '../game/touch'
 
@@ -46,8 +48,9 @@ const GUIDE = {
     '我是 AMP，時光電弧儀的導引體，會一路陪著你。',
     '任務：走進六道時光之門，重現歐姆、克希何夫、湯姆森、布勞恩、法拉第與變壓器時代的實驗。',
     '每重現一項實驗，我會出一道選擇題；答對就能取得那個年代的「殘頁」。',
-    '集滿六張殘頁，回到中央光環，我們一起拼出那張神秘紙條的真相。',
-    '移動：WASD／方向鍵；靠近門按 E 進入。隨時點我或開啟「任務日誌」。',
+    '殘頁會釘上「證據牆」。你可以在那裡向我提問——但我只回答「是」「否」或「與真相無關」，而且次數有限。',
+    '集滿六張殘頁、問對問題，回到中央光環，我們一起拼出那張神秘紙條的真相。',
+    '移動：WASD／方向鍵；靠近門按 E 進入。隨時點我、開「任務日誌」或「證據牆」。',
   ],
 }
 
@@ -61,7 +64,21 @@ export function Hud() {
       {isChallenge(scene) && <RoomOverlay id={scene} />}
       <DialogueLayer />
       <JournalLayer />
+      <EvidenceLayer />
     </>
+  )
+}
+
+// ── 進關年代字卡（電影感：淡入 → 停留 → 淡出） ───────────────────────────
+function EraCard({ id }: { id: ChallengeId }) {
+  const era = ERAS[id]
+  return (
+    <div key={id} style={{ position: 'absolute', top: '16%', left: 0, right: 0, textAlign: 'center', pointerEvents: 'none', zIndex: 40 }}>
+      <div className="era-card">
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px,6vw,64px)', fontWeight: 900, letterSpacing: 14, color: '#f3ead8', textShadow: '0 0 26px rgba(255,200,120,0.45), 0 4px 18px rgba(0,0,0,0.7)' }}>{era.year}</div>
+        <div style={{ marginTop: 8, fontSize: 15, letterSpacing: 5, color: '#cdbfa4', textShadow: '0 2px 10px rgba(0,0,0,0.8)' }}>{era.place}</div>
+      </div>
+    </div>
   )
 }
 
@@ -85,7 +102,7 @@ function IntroOverlay() {
 }
 
 function HubOverlay() {
-  const { solvedCount, allSolved, nearDoor, setScene, resetProgress, setDialogue, setJournalOpen, muted, toggleMuted } = useGame()
+  const { solvedCount, allSolved, nearDoor, setScene, resetProgress, setDialogue, setJournalOpen, setEvidenceOpen, muted, toggleMuted } = useGame()
   const mobile = useIsMobile()
   const coarse = isCoarsePointer()
   return (
@@ -102,6 +119,7 @@ function HubOverlay() {
       {/* RPG 工具列（觸控時移到右下，避開左下虛擬搖桿） */}
       <div style={{ position: 'absolute', bottom: 24, ...(coarse ? { right: 24 } : { left: 24 }), display: 'flex', flexDirection: coarse ? 'column' : 'row', gap: 10, pointerEvents: 'auto' }}>
         <button style={rpgBtn(COLORS.amber)} onClick={() => setJournalOpen(true)}>▤ 任務日誌</button>
+        <button style={rpgBtn(COLORS.rose)} onClick={() => setEvidenceOpen(true)}>◈ 證據牆・提問</button>
         <button style={rpgBtn(COLORS.teal)} onClick={() => setDialogue(GUIDE)}>◇ 呼叫 AMP</button>
       </div>
 
@@ -138,13 +156,14 @@ function ProgressDots() {
 }
 
 function RoomOverlay({ id }: { id: ChallengeId }) {
-  const { values, patch, setScene, solved, running, setRunning, doReset, muted, toggleMuted } = useGame()
+  const { values, patch, setScene, solved, running, setRunning, doReset, muted, toggleMuted, emLog } = useGame()
   const meta = CHALLENGES[id]
-  const res = getSolve(id, values)
+  const res = getSolve(id, values, emLog)
   const done = !!solved[id]
   const mobile = useIsMobile()
   return (
     <>
+      <EraCard id={id} />
       <div style={{ ...topBar, ...(mobile ? mTop : null) }}>
         <button style={miniBtn} onClick={() => setScene('hub')}>◀ 返回時光樞紐</button>
         <span style={{ color: COLORS.teal, marginLeft: 14, fontWeight: 700 }}>{meta.system}</span>
@@ -173,6 +192,7 @@ function RoomOverlay({ id }: { id: ChallengeId }) {
         {SLIDERS[id].length === 0 && (
           <div style={{ fontSize: 12, color: COLORS.dim, marginBottom: 8, lineHeight: 1.6 }}>用實驗台上的旋鈕（拖曳粗調・滾輪微調）與滑動變阻器手動操作</div>
         )}
+        {id === 'cyclo' && <EmRecorder />}
         {SLIDERS[id].map((s) => (
           <div key={s.key} style={{ marginBottom: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
@@ -188,6 +208,34 @@ function RoomOverlay({ id }: { id: ChallengeId }) {
 
       {done && <FragmentQuiz id={id} meta={meta} />}
     </>
+  )
+}
+
+// ── e/m 探究數據記錄（COV：改變 V、I，多組取樣求平均）──────────────────
+function EmRecorder() {
+  const { emLog, recordEm, clearEmLog, running } = useGame()
+  const est = emEstimate(emLog)
+  return (
+    <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(8,20,28,0.55)', border: '1px solid #26a0c055', borderRadius: 10 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+        <button style={{ ...bigBtn, background: running ? '#26a0c0' : '#33414f', cursor: running ? 'pointer' : 'not-allowed' }}
+          disabled={!running} onClick={recordEm}>📋 記錄一組數據</button>
+        <button style={miniBtn} onClick={clearEmLog}>清除</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: COLORS.dim, lineHeight: 1.5, marginBottom: 4 }}>
+        改變 V 或 I（控制變因），啟動後記錄 ≥{EM.samplesNeeded} 組讀值（含 ±2% 不確定度），求 e/m 平均。
+      </div>
+      {emLog.slice(-4).map((s, i) => (
+        <div key={i} style={{ fontSize: 11.5, fontFamily: 'ui-monospace, monospace', color: COLORS.text }}>
+          #{emLog.length - Math.min(emLog.length, 4) + i + 1}　V={s.V.toFixed(0)}V　I={s.I.toFixed(2)}A　r={(s.r * 100).toFixed(2)}cm　e/m={s.est.toExponential(2)}
+        </div>
+      ))}
+      {est !== null && (
+        <div style={{ fontSize: 12, marginTop: 4, color: '#5eead4', fontWeight: 700 }}>
+          平均 e/m = {est.toExponential(3)} C/kg（理論 1.759×10¹¹，n={emLog.length}）
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -302,10 +350,11 @@ function Readout() {
 }
 
 function FinaleOverlay() {
-  const { resetProgress } = useGame()
+  const { resetProgress, finaleWrong, bumpFinaleWrong, askedIds } = useGame()
   const [picked, setPicked] = useState<string | null>(null)
   const chosen = FINALE.options.find((o) => o.key === picked)
   const correct = chosen?.correct
+  const askedQs = SOUP_QUESTIONS.filter((q) => askedIds.includes(q.id))
   return (
     <Fill>
       <div style={card(660)}>
@@ -321,13 +370,30 @@ function FinaleOverlay() {
                 </div>
               ))}
             </details>
+            {askedQs.length > 0 && (
+              <details style={{ margin: '6px 0' }}>
+                <summary style={{ cursor: 'pointer', color: COLORS.teal, fontSize: 13 }}>問答回顧（{askedQs.length} 則）</summary>
+                {askedQs.map((q) => (
+                  <div key={q.id} style={{ fontSize: 12.5, color: COLORS.dim, margin: '6px 0', lineHeight: 1.6 }}>
+                    {q.text}　<b style={{ color: q.answer === 'yes' ? COLORS.green : q.answer === 'no' ? COLORS.rose : COLORS.dim }}>
+                      {q.answer === 'yes' ? '是' : q.answer === 'no' ? '否' : '與真相無關'}</b>
+                  </div>
+                ))}
+              </details>
+            )}
             <p style={{ color: COLORS.text, fontSize: 16, lineHeight: 1.8, margin: '10px 0 18px' }}>{FINALE.question}</p>
             {FINALE.options.map((o) => (
-              <button key={o.key} style={{ ...choiceBtn, margin: '8px 0', borderColor: picked === o.key ? COLORS.rose : '#2b3a52' }} onClick={() => { setPicked(o.key); audio.sfx(o.correct ? 'reveal' : 'wrong') }}>
+              <button key={o.key} style={{ ...choiceBtn, margin: '8px 0', borderColor: picked === o.key ? COLORS.rose : '#2b3a52' }}
+                onClick={() => { setPicked(o.key); audio.sfx(o.correct ? 'reveal' : 'wrong'); if (!o.correct) bumpFinaleWrong() }}>
                 <b style={{ color: COLORS.amber }}>{o.key}.</b> {o.text}
               </button>
             ))}
             {chosen && !chosen.correct && <div style={{ marginTop: 14, color: COLORS.rose, lineHeight: 1.7 }}>✗ {chosen.reason}</div>}
+            {finaleWrong >= 2 && !correct && (
+              <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 10, border: `1px solid ${COLORS.rose}`, background: 'rgba(40,8,16,0.5)', color: '#f3c6cf', fontSize: 13.5, lineHeight: 1.9, whiteSpace: 'pre-wrap' }}>
+                {FINALE.badEnding.join('\n')}
+              </div>
+            )}
           </>
         ) : (
           <>
@@ -425,6 +491,81 @@ function JournalLayer() {
             </div>
           )
         })}
+      </div>
+    </Fill>
+  )
+}
+
+// ── 證據牆＋海龜湯提問（玩家主動提問，AMP 只答 是/否/與真相無關） ─────────
+function EvidenceLayer() {
+  const { evidenceOpen, setEvidenceOpen, fragments, askedIds, askQuestion } = useGame()
+  if (!evidenceOpen) return null
+  const fragCount = CHALLENGE_ORDER.filter((id) => fragments[id]).length
+  const left = QUESTION_BUDGET - askedIds.length
+  const ansChip = (a: 'yes' | 'no' | 'irrelevant') =>
+    a === 'yes' ? { t: '是', c: COLORS.green } : a === 'no' ? { t: '否', c: COLORS.rose } : { t: '與真相無關', c: COLORS.dim }
+  return (
+    <Fill>
+      <div style={{ ...card(680), border: `2px solid ${COLORS.rose}` }}>
+        <Corners color={COLORS.rose} />
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+          <h2 style={{ margin: 0, color: COLORS.text }}>證據牆</h2>
+          <span style={{ marginLeft: 12, fontSize: 12.5, color: COLORS.dim }}>殘頁 {fragCount}/6 ・ 剩餘提問 <b style={{ color: left > 2 ? COLORS.teal : COLORS.rose }}>{left}</b>/{QUESTION_BUDGET}</span>
+          <div style={{ flex: 1 }} />
+          <button style={miniBtn} onClick={() => setEvidenceOpen(false)}>✕ 關閉</button>
+        </div>
+        <div style={{ color: COLORS.dim, fontSize: 12.5, lineHeight: 1.7, marginBottom: 12 }}>
+          這是一場海龜湯：對 AMP 提問，它只會回答<b style={{ color: COLORS.green }}>「是」</b>、<b style={{ color: COLORS.rose }}>「否」</b>或<b>「與真相無關」</b>。提問額度有限——問之前，先想好你的假設。
+        </div>
+
+        {/* 已釘上的殘頁 */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 8, marginBottom: 14 }}>
+          {CHALLENGE_ORDER.map((cid) => {
+            const m = CHALLENGES[cid]; const got = !!fragments[cid]
+            return (
+              <div key={cid} style={{
+                padding: '8px 10px', borderRadius: 8, fontSize: 11.5, lineHeight: 1.55, minHeight: 56,
+                background: got ? 'rgba(45,36,16,0.6)' : 'rgba(12,18,32,0.5)',
+                border: `1px dashed ${got ? COLORS.amber : '#2b3a52'}`, color: got ? '#e8ddc2' : '#41506a',
+                transform: `rotate(${(cid.charCodeAt(0) % 5 - 2) * 0.8}deg)`,
+              }}>
+                <b style={{ color: got ? COLORS.amber : '#41506a' }}>{m.clueTag}</b><br />
+                {got ? m.clue : '（尚未取得——回到時光之門重現實驗）'}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* 提問區 */}
+        <div style={{ fontSize: 13, color: COLORS.teal, fontWeight: 700, marginBottom: 6 }}>◇ 向 AMP 提問</div>
+        {SOUP_QUESTIONS.map((q) => {
+          const asked = askedIds.includes(q.id)
+          const locked = fragCount < q.unlockAt
+          if (locked) {
+            return (
+              <div key={q.id} style={{ padding: '8px 12px', margin: '6px 0', borderRadius: 9, border: '1px solid #1c2740', color: '#3a4a66', fontSize: 12.5 }}>
+                🔒 ？？？（需要 {q.unlockAt} 張殘頁解鎖）
+              </div>
+            )
+          }
+          if (asked) {
+            const a = ansChip(q.answer)
+            return (
+              <div key={q.id} style={{ padding: '9px 12px', margin: '6px 0', borderRadius: 9, border: `1px solid ${a.c}55`, background: 'rgba(10,16,30,0.55)', fontSize: 13, lineHeight: 1.6 }}>
+                <span style={{ color: COLORS.text }}>{q.text}</span>
+                <span style={{ marginLeft: 10, padding: '1px 10px', borderRadius: 999, background: a.c, color: '#06121f', fontWeight: 800, fontSize: 12 }}>{a.t}</span>
+                <div style={{ marginTop: 4, color: COLORS.dim, fontSize: 12 }}>{q.detail}</div>
+              </div>
+            )
+          }
+          return (
+            <button key={q.id} style={{ ...choiceBtn, margin: '6px 0', opacity: left <= 0 ? 0.45 : 1, cursor: left <= 0 ? 'not-allowed' : 'pointer' }}
+              disabled={left <= 0} onClick={() => askQuestion(q.id)}>
+              ？ {q.text}
+            </button>
+          )
+        })}
+        {left <= 0 && <div style={{ marginTop: 8, color: COLORS.rose, fontSize: 12.5 }}>提問額度已用盡——帶著手上的證據去拼出真相吧。</div>}
       </div>
     </Fill>
   )

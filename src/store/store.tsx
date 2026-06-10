@@ -1,12 +1,14 @@
 // ============================================================================
-// store.tsx — 外部狀態（useSyncExternalStore，不用 React Context）。
-// 管理：場景、各關完成、線索、滑桿值、靠近的門、模擬 Play/Reset、拖曳中旗標。
+// store.tsx — 外部狀態（useSyncExternalStore）。含海龜湯提問記錄、
+// e/m 測量數據記錄（COV）、證據牆開關、結局誤判計數。localStorage 持久化。
 // ============================================================================
 import { useSyncExternalStore } from 'react'
 import { CHALLENGE_ORDER, type ChallengeId, type Scene } from '../story/script'
+import type { EmSample } from '../game/physics'
+import { emMeasureRadius, emRatio } from '../game/physics'
 import * as audio from '../game/audio'
 
-const SAVE_KEY = 'chrono-save-v1'
+const SAVE_KEY = 'chrono-save-v2'
 
 export const INITIAL_VALUES: Record<string, number> = {
   lamp_eps: 6,
@@ -26,17 +28,24 @@ export const INITIAL_VALUES: Record<string, number> = {
 
 type Solved = Partial<Record<ChallengeId, boolean>>
 
-interface Data {
-  scene: Scene
+interface Persisted {
   solved: Solved
   values: Record<string, number>
+  fragments: Partial<Record<ChallengeId, boolean>>
+  askedIds: string[]
+  emLog: EmSample[]
+}
+
+interface Data extends Persisted {
+  scene: Scene
   nearDoor: ChallengeId | null
   running: boolean
   resetToken: number
   dragging: boolean
-  fragments: Partial<Record<ChallengeId, boolean>>
   dialogue: { speaker: string; lines: string[]; accent?: string } | null
   journalOpen: boolean
+  evidenceOpen: boolean
+  finaleWrong: number
   muted: boolean
 }
 
@@ -52,34 +61,50 @@ interface Actions {
   setFragment: (id: ChallengeId) => void
   setDialogue: (d: { speaker: string; lines: string[]; accent?: string } | null) => void
   setJournalOpen: (b: boolean) => void
+  setEvidenceOpen: (b: boolean) => void
+  askQuestion: (id: string) => void
+  recordEm: () => void
+  clearEmLog: () => void
+  bumpFinaleWrong: () => void
   toggleMuted: () => void
 }
 
 export type GameSnapshot = Data & Actions & { solvedCount: number; allSolved: boolean }
 
-function load(): Pick<Data, 'solved' | 'values' | 'fragments'> {
+function load(): Persisted {
   try {
     const raw = localStorage.getItem(SAVE_KEY)
     if (raw) {
-      const p = JSON.parse(raw) as Pick<Data, 'solved' | 'values' | 'fragments'>
-      return { solved: p.solved ?? {}, values: { ...INITIAL_VALUES, ...(p.values ?? {}) }, fragments: p.fragments ?? {} }
+      const p = JSON.parse(raw) as Partial<Persisted>
+      return {
+        solved: p.solved ?? {},
+        values: { ...INITIAL_VALUES, ...(p.values ?? {}) },
+        fragments: p.fragments ?? {},
+        askedIds: p.askedIds ?? [],
+        emLog: p.emLog ?? [],
+      }
     }
   } catch { /* ignore */ }
-  return { solved: {}, values: { ...INITIAL_VALUES }, fragments: {} }
+  return { solved: {}, values: { ...INITIAL_VALUES }, fragments: {}, askedIds: [], emLog: [] }
 }
 
 const loaded = load()
 let data: Data = {
-  scene: 'intro', solved: loaded.solved, values: loaded.values,
-  nearDoor: null, running: false, resetToken: 0, dragging: false, fragments: loaded.fragments,
-  dialogue: null, journalOpen: false, muted: false,
+  scene: 'intro', ...loaded,
+  nearDoor: null, running: false, resetToken: 0, dragging: false,
+  dialogue: null, journalOpen: false, evidenceOpen: false, finaleWrong: 0, muted: false,
 }
 
 const listeners = new Set<() => void>()
 let snapshot: GameSnapshot
 
 function persist() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ solved: data.solved, values: data.values, fragments: data.fragments })) } catch { /* ignore */ }
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      solved: data.solved, values: data.values, fragments: data.fragments,
+      askedIds: data.askedIds, emLog: data.emLog,
+    } satisfies Persisted))
+  } catch { /* ignore */ }
 }
 function isChallengeScene(s: Scene): s is ChallengeId {
   return (CHALLENGE_ORDER as string[]).includes(s)
@@ -88,19 +113,37 @@ function isChallengeScene(s: Scene): s is ChallengeId {
 const actions: Actions = {
   setScene: (scene) => {
     audio.sfx(isChallengeScene(scene) ? 'enter' : 'click')
-    if (isChallengeScene(scene)) set({ scene, running: false, resetToken: data.resetToken + 1, dragging: false, dialogue: null, journalOpen: false })
-    else set({ scene, running: false, dragging: false, dialogue: null, journalOpen: false })
+    if (isChallengeScene(scene)) set({ scene, running: false, resetToken: data.resetToken + 1, dragging: false, dialogue: null, journalOpen: false, evidenceOpen: false })
+    else set({ scene, running: false, dragging: false, dialogue: null, journalOpen: false, evidenceOpen: false })
   },
   setSolved: (id) => { if (!data.solved[id]) set({ solved: { ...data.solved, [id]: true } }) },
   patch: (p) => set({ values: { ...data.values, ...p } }),
   setNearDoor: (id) => { if (id !== data.nearDoor) set({ nearDoor: id }) },
   setRunning: (b) => { audio.sfx(b ? 'power' : 'click'); set({ running: b }) },
   doReset: () => { audio.sfx('click'); set({ running: false, resetToken: data.resetToken + 1 }) },
-  resetProgress: () => set({ solved: {}, values: { ...INITIAL_VALUES }, fragments: {}, scene: 'hub', running: false, resetToken: data.resetToken + 1 }),
+  resetProgress: () => set({
+    solved: {}, values: { ...INITIAL_VALUES }, fragments: {}, askedIds: [], emLog: [],
+    finaleWrong: 0, scene: 'hub', running: false, resetToken: data.resetToken + 1,
+  }),
   setDragging: (b) => { if (b !== data.dragging) set({ dragging: b }) },
   setFragment: (id) => { if (!data.fragments[id]) { audio.sfx('fragment'); set({ fragments: { ...data.fragments, [id]: true } }) } },
   setDialogue: (d) => { if (d) audio.sfx('open'); set({ dialogue: d }) },
   setJournalOpen: (b) => { audio.sfx(b ? 'open' : 'close'); set({ journalOpen: b }) },
+  setEvidenceOpen: (b) => { audio.sfx(b ? 'open' : 'close'); set({ evidenceOpen: b }) },
+  askQuestion: (id) => {
+    if (data.askedIds.includes(id)) return
+    audio.sfx('open')
+    set({ askedIds: [...data.askedIds, id] })
+  },
+  recordEm: () => {
+    const V = data.values.emacc_V, I = data.values.emacc_I
+    const r = emMeasureRadius(V, I)
+    const est = emRatio(V, I, r)
+    audio.sfx('correct')
+    set({ emLog: [...data.emLog, { V, I, r, est }] })
+  },
+  clearEmLog: () => { audio.sfx('click'); set({ emLog: [] }) },
+  bumpFinaleWrong: () => set({ finaleWrong: data.finaleWrong + 1 }),
   toggleMuted: () => { const m = !data.muted; audio.setMuted(m); set({ muted: m }) },
 }
 

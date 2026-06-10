@@ -1,10 +1,7 @@
 // ============================================================================
 // CircuitRooms.tsx — Ch1 電路學（實驗器材 + 多重條件 + 拖曳變阻器）
-//   LampRoom : 串聯 — 電池＋→電流表→滑動變阻器→燈泡→電池－。
-//              條件：①電源 ε=8V ②主燈電流 I=0.85A ③不燒毀（同時達成）。
-//              變阻器滑塊可用滑鼠直接拖曳；燈泡含點光源真正發光。
-//   SplitRoom: 並聯 — 電池跨接上下匯流排，兩支路並聯。
-//              條件：①維生 I2=0.6A ②照明 I1 在 0.45–0.75A ③不熔斷。
+//   LampRoom : 串聯 — 燈絲電阻 R(T) 溫度相依 → 冷開機湧浪電流（非線性元件）。
+//   SplitRoom: 並聯 — 含電池內阻：V_bus = ε − r·I_total。
 // ============================================================================
 import { useEffect, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -13,7 +10,7 @@ import { RoomShell } from '../components/RoomShell'
 import { Lead, DialMeter, BatteryPack, Rheostat, ResistorUnit, BulbLamp, BusBar, Post, Knob } from '../components/lab'
 import { useGame } from '../store/store'
 import {
-  lampCurrent, lampPower, lampEquilibriumT, stepFilament,
+  lampCurrentAt, lampPowerAt, lampSteady, lampR, stepFilament,
   splitCurrents, stepFuse, CIRCUIT, SPLIT,
 } from '../game/physics'
 import { resetLive, pushSample, live } from '../game/live'
@@ -45,22 +42,24 @@ export function LampRoom() {
 
   useFrame(() => {
     const eps = epsRef.current, rv = rvRef.current
-    const I = lampCurrent(eps, rv), P = lampPower(eps, rv)
+    // 瞬時電流/功率（燈絲電阻 R(T) 隨溫度變 → 冷開機有湧浪電流）
+    const I = lampCurrentAt(eps, rv, T.current), P = lampPowerAt(eps, rv, T.current)
+    const steady = lampSteady(eps, rv) // 穩態自洽解（過關判定用）
     const epsOK = Math.abs(eps - CIRCUIT.epsTarget) <= CIRCUIT.epsTol
-    const IOK = Math.abs(I - CIRCUIT.iRated) <= CIRCUIT.tol
+    const IOK = Math.abs(steady.I - CIRCUIT.iRated) <= CIRCUIT.tol
     if (running && !burnt.current) {
       T.current = stepFilament(T.current, P, 1 / 60)
       t.current += 1 / 60
       if (T.current >= CIRCUIT.Tburn) { burnt.current = true; setBurntUI(true); live.status = 'fail'; live.readout = ['✗ 燈絲熔斷！電流過大', `I = ${I.toFixed(2)} A`]; setRunning(false) }
-      const Teq = lampEquilibriumT(P)
-      if (!burnt.current && epsOK && IOK && T.current >= 0.9 * Teq && settle(`${eps}|${rv}`, dragging)) { live.status = 'done'; setSolved('lamp') }
+      if (!burnt.current && epsOK && IOK && T.current >= 0.9 * steady.T && settle(`${eps}|${rv}`, dragging)) { live.status = 'done'; setSolved('lamp') }
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +T.current.toFixed(1) })
     }
     if (live.status !== 'fail' && live.status !== 'done') live.status = running ? 'run' : 'idle'
     if (live.status !== 'fail') live.readout = [
       `電源 ε = ${eps.toFixed(1)} V ${epsOK ? '✓' : '（需 8.0）'}`,
-      `主燈電流 I = ${I.toFixed(2)} A ${IOK ? '✓' : '（需 0.85）'}`,
+      `瞬時電流 I = ${I.toFixed(2)} A → 穩態 ${steady.I.toFixed(2)} A ${IOK ? '✓' : '（需 0.85）'}`,
+      `燈絲 R(T) = ${lampR(T.current).toFixed(1)} Ω（冷 ${CIRCUIT.rLamp0} Ω：歐姆定律僅在定溫成立！）`,
       `燈絲溫度 T = ${T.current.toFixed(0)} °C（熔斷 ${CIRCUIT.Tburn}）`,
     ]
     const b = burnt.current ? 0 : Math.min((T.current - CIRCUIT.Tamb) / 55, 1.8)
@@ -72,7 +71,7 @@ export function LampRoom() {
   const rvFrac = values.lamp_rv / 20
   const sliderX = 0.6 + (rvFrac - 0.5) * 1.4
   return (
-    <RoomShell accent="#e0852a" camera={[0, 2.7, 8.5]}>
+    <RoomShell era="lamp" accent="#e0852a" camera={[0, 2.7, 8.5]}>
       <BatteryPack pos={[-3.4, 0, 0]} />
       <DialMeter pos={[-1.4, 0.6, 0.9]} label="A" color="#e0852a" needleRef={amm} />
       <Rheostat pos={[0.6, 0.32, 0]} frac={rvFrac} onFrac={(f) => patch({ lamp_rv: f * 20 })} onDragState={setDragging} />
@@ -121,11 +120,12 @@ export function SplitRoom() {
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +i2.toFixed(3), b: +iTotal.toFixed(3) })
     }
     if (live.status !== 'fail' && live.status !== 'done') live.status = running ? 'run' : 'idle'
+    const vBus = splitCurrents(epsRef.current, r2Ref.current).vBus
     if (live.status !== 'fail') live.readout = [
+      `端電壓 V = ${vBus.toFixed(2)} V（= ε − r·I：內阻 ${SPLIT.rInternal} Ω 吃掉 ${(epsRef.current - vBus).toFixed(2)} V）`,
       `照明 I1 = ${i1.toFixed(2)} A ${i1OK ? '✓' : `（${SPLIT.i1Lo}-${SPLIT.i1Hi}）`}`,
       `維生 I2 = ${i2.toFixed(2)} A ${i2OK ? '✓' : '（需 0.60）'}`,
-      `總電流 = ${iTotal.toFixed(2)} A（保險絲 ${SPLIT.fuse}）`,
-      `保險絲溫度 = ${Tf.current.toFixed(0)} °C`,
+      `總電流 = ${iTotal.toFixed(2)} A（保險絲 ${SPLIT.fuse}）　保險絲 ${Tf.current.toFixed(0)} °C`,
     ]
     if (a1.current) a1.current.rotation.z = needleAngle(i1 / 2)
     if (a2.current) a2.current.rotation.z = needleAngle(i2 / 2)
@@ -135,7 +135,7 @@ export function SplitRoom() {
   const { i1 } = splitCurrents(values.split_eps, values.split_r2)
   const TOP = 1.9, BOT = 0.6, XL = -3, XR = 2.6, b1x = 0, b2x = 2
   return (
-    <RoomShell accent="#e0852a" camera={[0, 2.7, 8.5]}>
+    <RoomShell era="split" accent="#e0852a" camera={[0, 2.7, 8.5]}>
       <BusBar a={[XL, TOP, 0]} b={[XR, TOP, 0]} />
       <BusBar a={[XL, BOT, 0]} b={[XR, BOT, 0]} />
       {/* 電池＋接上排、－接下排 */}

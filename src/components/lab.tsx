@@ -5,6 +5,7 @@ import { useMemo, useRef, useState, type RefObject } from 'react'
 import { Html } from '@react-three/drei'
 import type { ThreeEvent } from '@react-three/fiber'
 import * as THREE from 'three'
+import { tick } from '../game/audio'
 
 const COPPER = '#c0763a'
 const BRASS = '#d8b24a'
@@ -102,7 +103,7 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
   const move = (e: ThreeEvent<PointerEvent>) => {
     if (!drag) return
     e.stopPropagation()
-    const f = fracAt(e); if (f !== null) onFrac?.(f)
+    const f = fracAt(e); if (f !== null) { tick(); onFrac?.(f) }
   }
   const end = (e: ThreeEvent<PointerEvent>) => {
     if (!drag) return
@@ -253,7 +254,7 @@ export function Knob({ pos, value, min, max, step, onChange, onDragState, label,
   const frac = Math.min(1, Math.max(0, (value - min) / (max - min)))
   const ang = (-0.75 + frac * 1.5) * Math.PI
   const norm = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a }
-  const set = (v: number) => { const cl = Math.min(max, Math.max(min, v)); onChange(+(Math.round(cl / step) * step).toFixed(6)) }
+  const set = (v: number) => { const cl = Math.min(max, Math.max(min, v)); tick(); onChange(+(Math.round(cl / step) * step).toFixed(6)) }
   // 以射線與旋鈕所在 Z 平面求交點 → 即使手指移出旋鈕仍能穩定取角（觸控順暢關鍵）
   const angleAt = (e: ThreeEvent<PointerEvent>): number | null => {
     const r = e.ray, dz = r.direction.z

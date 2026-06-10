@@ -18,16 +18,60 @@ import { DOOR_RADIUS } from '../theme'
 
 interface DoorInfo { id: ChallengeId; pos: THREE.Vector3; color: string; title: string }
 
+// ── 傳送門漩渦（單面 shader：極座標螺旋 + 噪聲 + 邊緣光暈，HDR 輸出餵 Bloom） ──
+const SWIRL_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+`
+const SWIRL_FRAG = /* glsl */ `
+uniform float uTime; uniform vec3 uColor; uniform float uBoost;
+varying vec2 vUv;
+// cheap value noise
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float noise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y);
+}
+void main(){
+  vec2 c = vUv - 0.5;
+  float r = length(c) * 2.0;          // 0 中心 → 1 邊緣
+  float a = atan(c.y, c.x);
+  // 螺旋：角度隨半徑扭轉 + 時間旋轉
+  float swirl = a + (1.0 - r) * 6.0 - uTime * 1.4;
+  float bands = 0.5 + 0.5 * sin(swirl * 3.0 + noise(vec2(r * 6.0, a * 2.0) + uTime * 0.3) * 4.0);
+  float n = noise(vec2(cos(a), sin(a)) * (2.5 + r * 4.0) + uTime * 0.5);
+  // 中心深淵 + 邊緣亮環
+  float core = smoothstep(0.0, 0.55, r);
+  float rim  = smoothstep(0.78, 0.99, r) * 2.2;
+  float glow = bands * 0.8 + n * 0.45;
+  vec3 col = uColor * (glow * core + rim) * (1.2 + uBoost * 1.6);
+  float alpha = clamp(0.25 + glow * 0.6 + rim * 0.4, 0.0, 1.0) * smoothstep(1.02, 0.92, r);
+  gl_FragColor = vec4(col, alpha);
+}
+`
+function SwirlDisc({ color, near }: { color: string; near: boolean }) {
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(color) }, uBoost: { value: 0 } },
+    vertexShader: SWIRL_VERT, fragmentShader: SWIRL_FRAG,
+  }), [color])
+  useFrame((st, dt) => {
+    mat.uniforms.uTime.value = st.clock.elapsedTime
+    const b = mat.uniforms.uBoost
+    b.value += ((near ? 1 : 0) - b.value) * Math.min(1, dt * 6)
+  })
+  return (
+    <mesh position={[0, 2.0, 0]}>
+      <circleGeometry args={[1.42, 64]} />
+      <primitive object={mat} attach="material" />
+    </mesh>
+  )
+}
+
 // ── 時光之門（拱框 + 旋轉能量漩渦 + 傳送面） ─────────────────────────────
 function PortalGate({ pos, color, title, done, near, onEnter, showLabel = true }: {
   pos: THREE.Vector3; color: string; title: string; done: boolean; near: boolean; onEnter: () => void; showLabel?: boolean
 }) {
-  const swirl = useRef<THREE.Group>(null)
-  const disc = useRef<THREE.MeshStandardMaterial>(null)
-  useFrame((st, dt) => {
-    if (swirl.current) swirl.current.rotation.z += dt * 0.5
-    if (disc.current) disc.current.emissiveIntensity = 0.6 + Math.sin(st.clock.elapsedTime * 2 + pos.x) * 0.25 + (near ? 0.8 : 0)
-  })
   const facing = Math.atan2(pos.x, pos.z) + Math.PI
   const c = done ? '#34d399' : color
   return (
@@ -42,20 +86,8 @@ function PortalGate({ pos, color, title, done, near, onEnter, showLabel = true }
         <torusGeometry args={[1.55, 0.14, 20, 48]} />
         <meshStandardMaterial color="#1a2230" metalness={0.9} roughness={0.25} emissive={c} emissiveIntensity={near ? 0.9 : 0.35} envMapIntensity={1.2} />
       </mesh>
-      {/* 旋轉能量漩渦（內層數環） */}
-      <group ref={swirl} position={[0, 2.0, 0.02]}>
-        {[1.25, 0.95, 0.62].map((r, i) => (
-          <mesh key={i} rotation={[0, 0, i * 0.7]}>
-            <torusGeometry args={[r, 0.03, 8, 40]} />
-            <meshStandardMaterial color={c} emissive={c} emissiveIntensity={1.4} toneMapped={false} />
-          </mesh>
-        ))}
-      </group>
-      {/* 傳送面 */}
-      <mesh position={[0, 2.0, 0]}>
-        <circleGeometry args={[1.4, 48]} />
-        <meshStandardMaterial ref={disc} color="#05080f" emissive={c} emissiveIntensity={0.6} transparent opacity={0.55} toneMapped={false} side={THREE.DoubleSide} />
-      </mesh>
+      {/* shader 漩渦傳送面（HDR 輸出 → Bloom 泛光） */}
+      <SwirlDisc color={c} near={near} />
       {/* 互動命中區 */}
       <mesh position={[0, 1.9, 0]} onClick={(e) => { e.stopPropagation(); onEnter() }}
         onPointerOver={() => (document.body.style.cursor = 'pointer')}
@@ -171,6 +203,8 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
   const keys = useKeyboard()
   const player = useRef<THREE.Group>(null)
   const droneInner = useRef<THREE.Group>(null)
+  const vel = useRef(new THREE.Vector3())
+  const bank = useRef(0)
   const interactLatch = useRef(false)
   const { camera } = useThree()
   const [npcOpen, setNpcOpen] = useState(true)
@@ -196,9 +230,28 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
     let mz = (k.backward ? 1 : 0) - (k.forward ? 1 : 0) + touch.z
     const mag = Math.hypot(mx, mz)
     if (mag > 1) { mx /= mag; mz /= mag }
+    // ── 二階阻尼移動（加速/慣性）+ 朝移動方向轉向 + 側傾（banking）──
     const SPEED = 6.5
-    g.position.x += mx * SPEED * dt
-    g.position.z += mz * SPEED * dt
+    const ACCEL = 1 - Math.pow(0.002, dt) // 速度平滑係數
+    vel.current.x += (mx * SPEED - vel.current.x) * ACCEL
+    vel.current.z += (mz * SPEED - vel.current.z) * ACCEL
+    g.position.x += vel.current.x * dt
+    g.position.z += vel.current.z * dt
+    const spd = Math.hypot(vel.current.x, vel.current.z)
+    if (spd > 0.4) {
+      const yaw = Math.atan2(vel.current.x, vel.current.z)
+      let dy = yaw - g.rotation.y
+      while (dy > Math.PI) dy -= Math.PI * 2
+      while (dy < -Math.PI) dy += Math.PI * 2
+      g.rotation.y += dy * Math.min(1, dt * 8)
+      // 側傾：轉向越急、傾角越大（上限 ~14°）
+      bank.current += (THREE.MathUtils.clamp(-dy * 2.2, -0.25, 0.25) - bank.current) * Math.min(1, dt * 6)
+    } else {
+      bank.current += (0 - bank.current) * Math.min(1, dt * 4)
+    }
+    g.rotation.z = bank.current
+    // 前傾：依速度微微低頭
+    g.rotation.x = THREE.MathUtils.lerp(g.rotation.x, (spd / SPEED) * 0.12, Math.min(1, dt * 5))
     const R = 11.5
     const d = Math.hypot(g.position.x, g.position.z)
     if (d > R) { g.position.x *= R / d; g.position.z *= R / d }

@@ -1,10 +1,7 @@
 // ============================================================================
-// MagnetRooms.tsx — Ch2 帶電質點在電磁場中的運動（實驗器材 + 多重條件 + 穩定確認）
-//   CycloRoom（e/m 荷質比）：亥姆霍茲線圈使電子束成圓。r = m v /(eB)，e/m = 2V/(B²r²)。
-//       條件：① 加速電壓 V=200V ② 電子束半徑 r=5.0cm。
-//   MaglockRoom（CRT 偏轉）：加速→電場板偏轉＋磁場偏轉→螢幕光點。
-//       條件：① Va=2000V ② 光點置中（電場磁場抵消）③ 兩場皆作用中。
-//   過關需「放開滑桿、數值穩定 0.5 秒且未拖曳」才判定（防掃過誤觸）。
+// MagnetRooms.tsx — Ch2 帶電質點在電磁場中的運動
+//   CycloRoom（e/m）：含測量不確定度 + 多組數據平均（COV 探究）。
+//   MaglockRoom（CRT）：含湯姆森平衡法 v = E/B 讀數。
 // ============================================================================
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -15,8 +12,8 @@ import { Knob } from '../components/lab'
 import { useGame } from '../store/store'
 import { useSettle } from '../game/useSettle'
 import {
-  emVelocity, emField, emRadius, emRatio, EM,
-  crtDeflect, CRT,
+  emVelocity, emField, emRadius, emEstimate, emMeasurementOK, EM,
+  crtDeflect, crtBalance, CRT,
 } from '../game/physics'
 import { resetLive, pushSample, live } from '../game/live'
 
@@ -29,7 +26,9 @@ function lab(border: string): React.CSSProperties {
 // 第三關：電子荷質比 e/m
 // ===========================================================================
 export function CycloRoom() {
-  const { values, running, resetToken, setSolved, dragging, patch, setDragging } = useGame()
+  const { values, running, resetToken, setSolved, dragging, patch, setDragging, emLog } = useGame()
+  const emLogRef = useRef(emLog)
+  useEffect(() => { emLogRef.current = emLog }, [emLog])
   const t = useRef(0)
   const ang = useRef(0)
   const frame = useRef(0)
@@ -52,20 +51,24 @@ export function CycloRoom() {
     const v = emVelocity(V), B = emField(I), r = emRadius(V, I)
     const vOK = Math.abs(V - EM.VaccTarget) <= EM.VaccTol
     const rOK = Math.abs(r - EM.rTarget) <= EM.rTol
+    const emOK = emMeasurementOK(emLogRef.current)
     const settled = settle(`${V}|${I}`, dragging)
     if (running) {
       t.current += 1 / 60
       ang.current += 2 * (1 / 60) // 電子沿圓周動
-      if (vOK && rOK && settled) { live.status = 'done'; setSolved('cyclo') }
+      if (vOK && rOK && emOK && settled) { live.status = 'done'; setSolved('cyclo') }
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +Math.sin(ang.current).toFixed(3) })
     }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
+    const est = emEstimate(emLogRef.current)
     if (live.status !== 'done') live.readout = [
-      `電子速度 v = ${v.toExponential(2)} m/s`,
-      `磁場 B = ${B.toExponential(2)} T`,
+      `電子速度 v = ${v.toExponential(2)} m/s　磁場 B = ${B.toExponential(2)} T`,
       `半徑 r = ${(r * 100).toFixed(2)} cm ${rOK ? '✓' : '（需 5.0）'}　V=${V}V ${vOK ? '✓' : '（需 200）'}`,
-      `e/m = ${emRatio(V, I, r).toExponential(2)} C/kg`,
+      `已記錄 ${emLogRef.current.length}/${EM.samplesNeeded} 組（讀值含 ±2% 不確定度，按「📋記錄」取樣）`,
+      est === null
+        ? '平均 e/m = ──（記錄數據後計算）'
+        : `平均 e/m = ${est.toExponential(3)} C/kg ${emOK ? '✓' : ''}（理論 1.759×10¹¹）`,
     ]
     const Rscene = Math.min(r * S, 3.2)
     cyc.current.R = Rscene
@@ -83,7 +86,7 @@ export function CycloRoom() {
   const targetR = EM.rTarget * S
   const rOK = Math.abs(emRadius(V, I) - EM.rTarget) <= EM.rTol
   return (
-    <RoomShell accent="#26a0c0" camera={[0, 2.4, 8.5]}>
+    <RoomShell era="cyclo" accent="#26a0c0" camera={[0, 2.4, 8.5]}>
       {/* 玻璃球管 */}
       <mesh position={[0, 1.9, 0]}><sphereGeometry args={[2.4, 32, 32]} /><meshStandardMaterial color="#cfe8ff" transparent opacity={0.12} roughness={0.05} /></mesh>
       {/* 亥姆霍茲線圈（兩共軸銅環） */}
@@ -163,11 +166,14 @@ export function MaglockRoom() {
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +(totalY * 100).toFixed(2) })
     }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
+    const vBal = crtBalance(Va, Vd, Bm)
     if (live.status !== 'done') live.readout = [
       `加速電壓 Va = ${Va} V ${VaOK ? '✓' : '（需 2000）'}`,
       `電場分量 y_E = ${(yE * 100).toFixed(2)} cm ${yEOK ? '✓' : `（需 ${(CRT.yE_target * 100).toFixed(0)}）`}`,
       `螢幕總偏轉 y = ${(totalY * 100).toFixed(2)} cm ${yTOK ? '✓' : `（需 +${(CRT.yT_target * 100).toFixed(0)}）`}`,
-      `Vd = ${Vd} V　B = ${Bm.toFixed(2)} mT（磁場須蓋過電場使光點反向）`,
+      vBal !== null
+        ? `⚖ 湯姆森平衡！E/B 抵消 → 測得 v = E/B = ${vBal.toExponential(2)} m/s（理論 √(2eVa/m) = ${vx.toExponential(2)}）`
+        : `Vd = ${Vd} V　B = ${Bm.toFixed(2)} mT（試試讓兩場抵消 y≈0：湯姆森平衡法測 v）`,
     ]
     // 電子束軌跡：只有按下「啟動」後才射出顯示
     if (running) {
@@ -194,7 +200,7 @@ export function MaglockRoom() {
   const plateColBot = Vd < 0 ? '#f87171' : Vd > 0 ? '#60a5fa' : '#888'
   const gap = CRT.d * S // = 1.0
   return (
-    <RoomShell accent="#22c55e" camera={[0, 2.4, 9.5]}>
+    <RoomShell era="maglock" accent="#22c55e" camera={[0, 2.4, 9.5]}>
       {/* 玻璃管 */}
       <mesh position={[(gunX + screenX) / 2, cy, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[1.6, 1.6, screenX - gunX + 1, 24, 1, true]} /><meshStandardMaterial color="#cfe8ff" transparent opacity={0.08} side={THREE.DoubleSide} /></mesh>
       {/* 電子槍 */}
