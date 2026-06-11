@@ -11,12 +11,9 @@ import type { Scene } from '../story/script'
 export function Effects({ scene }: { scene: Scene }) {
   const warp = scene === 'intro'
   return (
-    <EffectComposer multisampling={4}>
+    {/* multisampling=0：MSAA 與反射地板/部分驅動互衝會閃爍；Bloom 本身已柔化邊緣 */}
+    <EffectComposer multisampling={0}>
       <Bloom mipmapBlur intensity={warp ? 1.2 : 0.85} luminanceThreshold={1.0} luminanceSmoothing={0.2} />
       {warp
         ? <ChromaticAberration offset={[0.0022, 0.0014]} radialModulation modulationOffset={0.4} />
-        : <ChromaticAberration offset={[0.0004, 0.0002]} radialModulation modulationOffset={0.8} />}
-      <Vignette eskil={false} offset={0.18} darkness={warp ? 0.85 : 0.62} />
-    </EffectComposer>
-  )
-}
+        : <ChromaticAberration offset={[0.0004, 0.0002]} radialModulation modulationOffset={0.8} 
