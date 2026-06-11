@@ -1,5 +1,9 @@
 // ============================================================================
 // lab.tsx — 真實「實驗室器材」3D 元件庫（給六關共用）。
+// 美術升級版：
+//   BatteryPack → 伏打堆（鋅/銅圓盤交錯 + 玻璃罩，1827 年正確器材）
+//   DialMeter  → 古董檢流計（黃銅斜邊框 + 刻度 + 玻璃表蒙 + 軸心螺絲）
+//   BulbLamp   → 真折射玻璃（meshPhysicalMaterial transmission）+ 螺紋 + 支撐絲
 // ============================================================================
 import { useMemo, useRef, useState, type RefObject } from 'react'
 import { Html } from '@react-three/drei'
@@ -12,6 +16,7 @@ const BRASS = '#d8b24a'
 const STEEL = '#8a939e'
 const CERAMIC = '#ece5d6'
 const PLASTIC = '#2b3340'
+const ZINC = '#9aa3ab'
 
 export function labelStyle(border: string): React.CSSProperties {
   return {
@@ -32,44 +37,99 @@ export function Lead({ points, color = '#d23b3b', r = 0.035 }: { points: [number
 
 export function Post({ pos }: { pos: [number, number, number] }) {
   return (
-    <mesh position={pos} castShadow>
-      <cylinderGeometry args={[0.06, 0.07, 0.18, 12]} />
-      <meshStandardMaterial color={BRASS} metalness={0.7} roughness={0.3} />
-    </mesh>
-  )
-}
-
-export function BatteryPack({ pos }: { pos: [number, number, number] }) {
-  return (
     <group position={pos}>
-      <mesh castShadow position={[0, 0.35, 0]}>
-        <boxGeometry args={[1.6, 0.7, 0.9]} />
-        <meshStandardMaterial color="#21303f" metalness={0.3} roughness={0.6} />
+      <mesh castShadow>
+        <cylinderGeometry args={[0.06, 0.07, 0.18, 12]} />
+        <meshStandardMaterial color={BRASS} metalness={0.7} roughness={0.3} />
       </mesh>
-      <Post pos={[-0.5, 0.78, 0]} />
-      <Post pos={[0.5, 0.78, 0]} />
-      <Html position={[-0.5, 1.04, 0]} center distanceFactor={11}><div style={labelStyle('#d23b3b')}>＋</div></Html>
-      <Html position={[0.5, 1.04, 0]} center distanceFactor={11}><div style={labelStyle('#222')}>－</div></Html>
-      <Html position={[0, 0.35, 0.5]} center distanceFactor={13}><div style={labelStyle('#21303f')}>電池組</div></Html>
+      {/* 頂端滾花螺帽 */}
+      <mesh position={[0, 0.1, 0]}>
+        <cylinderGeometry args={[0.045, 0.045, 0.04, 8]} />
+        <meshStandardMaterial color={BRASS} metalness={0.8} roughness={0.25} />
+      </mesh>
     </group>
   )
 }
 
+// ── 伏打堆（Voltaic Pile）：鋅/銅圓盤交錯堆疊 + 玻璃罩 ───────────────────
+export function BatteryPack({ pos }: { pos: [number, number, number] }) {
+  const N = 14 // 圓盤層數
+  return (
+    <group position={pos}>
+      {/* 木底座 */}
+      <mesh position={[0, 0.05, 0]} castShadow>
+        <cylinderGeometry args={[0.62, 0.68, 0.1, 20]} />
+        <meshStandardMaterial color="#4a3622" roughness={0.8} />
+      </mesh>
+      {/* 鋅/銅交錯圓盤（中間夾濕布層的微縫由盤距呈現） */}
+      {Array.from({ length: N }).map((_, i) => (
+        <mesh key={i} position={[0, 0.14 + i * 0.042, 0]} castShadow={i % 3 === 0}>
+          <cylinderGeometry args={[0.4, 0.4, 0.03, 22]} />
+          <meshStandardMaterial color={i % 2 ? COPPER : ZINC} metalness={0.75} roughness={0.35} />
+        </mesh>
+      ))}
+      {/* 玻璃罩（真折射） */}
+      <mesh position={[0, 0.46, 0]}>
+        <cylinderGeometry args={[0.52, 0.52, 0.78, 20, 1, true]} />
+        <meshPhysicalMaterial color="#e8f2ff" transmission={0.92} thickness={0.15} roughness={0.08} ior={1.45} side={THREE.DoubleSide} />
+      </mesh>
+      {/* 頂蓋木盤 + 接線柱（位置與原版相同：±0.5, y0.78 → 各關接線不變） */}
+      <mesh position={[0, 0.72, 0]} castShadow>
+        <cylinderGeometry args={[0.6, 0.6, 0.08, 20]} />
+        <meshStandardMaterial color="#4a3622" roughness={0.8} />
+      </mesh>
+      <Post pos={[-0.5, 0.78, 0]} />
+      <Post pos={[0.5, 0.78, 0]} />
+      <Html position={[-0.5, 1.06, 0]} center distanceFactor={11}><div style={labelStyle('#d23b3b')}>＋</div></Html>
+      <Html position={[0.5, 1.06, 0]} center distanceFactor={11}><div style={labelStyle('#222')}>－</div></Html>
+      <Html position={[0, 0.3, 0.66]} center distanceFactor={13}><div style={labelStyle('#21303f')}>伏打堆</div></Html>
+    </group>
+  )
+}
+
+// ── 古董檢流計：黃銅斜邊框 + 刻度弧 + 玻璃表蒙 + 軸心螺絲 ────────────────
 export function DialMeter({ pos, label = 'A', color = '#1f6feb', needleRef }: {
   pos: [number, number, number]; label?: string; color?: string; needleRef?: RefObject<THREE.Group | null>
 }) {
   return (
     <group position={pos}>
+      {/* 機殼 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
         <cylinderGeometry args={[0.45, 0.45, 0.22, 32]} />
         <meshStandardMaterial color="#0e1622" metalness={0.3} roughness={0.6} />
       </mesh>
-      <mesh position={[0, 0, 0.12]}><circleGeometry args={[0.4, 32]} /><meshStandardMaterial color="#f4f1e7" /></mesh>
+      {/* 黃銅斜邊外框 */}
+      <mesh position={[0, 0, 0.1]} rotation={[Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.45, 0.045, 10, 40]} />
+        <meshStandardMaterial color={BRASS} metalness={0.85} roughness={0.25} />
+      </mesh>
+      {/* 表面 */}
+      <mesh position={[0, 0, 0.12]}><circleGeometry args={[0.4, 32]} /><meshStandardMaterial color="#f4f1e7" roughness={0.6} /></mesh>
       <mesh position={[0, 0, 0.122]}><ringGeometry args={[0.38, 0.4, 32]} /><meshStandardMaterial color={color} /></mesh>
+      {/* 刻度弧（21 格） */}
+      {Array.from({ length: 21 }).map((_, i) => {
+        const a = Math.PI * 0.78 - (i / 20) * Math.PI * 0.56
+        const major = i % 5 === 0
+        return (
+          <mesh key={i} position={[Math.cos(a) * 0.32, Math.sin(a) * 0.32 - 0.04, 0.125]} rotation={[0, 0, a - Math.PI / 2]}>
+            <planeGeometry args={[major ? 0.018 : 0.01, major ? 0.07 : 0.045]} />
+            <meshBasicMaterial color="#23303f" />
+          </mesh>
+        )
+      })}
+      {/* 指針 */}
       <group ref={needleRef} position={[0, 0, 0.14]}>
-        <mesh position={[0, 0.17, 0]}><boxGeometry args={[0.025, 0.34, 0.01]} /><meshStandardMaterial color="#c0392b" /></mesh>
+        <mesh position={[0, 0.17, 0]}><boxGeometry args={[0.022, 0.34, 0.008]} /><meshStandardMaterial color="#c0392b" /></mesh>
+        <mesh position={[0, -0.06, 0]}><boxGeometry args={[0.03, 0.1, 0.008]} /><meshStandardMaterial color="#c0392b" /></mesh>
       </group>
-      <mesh position={[0, 0, 0.15]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.04, 0.04, 0.04, 12]} /><meshStandardMaterial color="#222" /></mesh>
+      {/* 軸心黃銅螺絲 */}
+      <mesh position={[0, 0, 0.15]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.045, 0.045, 0.045, 12]} /><meshStandardMaterial color={BRASS} metalness={0.85} roughness={0.25} /></mesh>
+      <mesh position={[0, 0, 0.175]}><boxGeometry args={[0.05, 0.012, 0.008]} /><meshStandardMaterial color="#6d5a25" /></mesh>
+      {/* 玻璃表蒙（壓扁半球） */}
+      <mesh position={[0, 0, 0.13]} scale={[1, 1, 0.42]}>
+        <sphereGeometry args={[0.42, 24, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshPhysicalMaterial color="#eaf2ff" transparent opacity={0.18} roughness={0.05} clearcoat={1} metalness={0.05} side={THREE.DoubleSide} />
+      </mesh>
       <Html position={[0, -0.22, 0.13]} center distanceFactor={10}><div style={labelStyle(color)}>{label}</div></Html>
     </group>
   )
@@ -85,7 +145,6 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
   const draggable = !!onFrac
   const planeZ = pos[2]
 
-  // 射線與滑軌 Z 平面求交 → 取世界 x，換算滑塊比例（手指移出滑塊仍持續追蹤）
   const fracAt = (e: ThreeEvent<PointerEvent>): number | null => {
     const r = e.ray, dz = r.direction.z
     if (Math.abs(dz) < 1e-6) return null
@@ -111,14 +170,23 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
     setDrag(false); onDragState?.(false); document.body.style.cursor = 'default'
   }
 
+  // 繞線紋（瓷管上的細密深色環）
+  const windings = useMemo(() => Math.round(length * 16), [length])
+
   return (
     <group position={pos}>
       <mesh rotation={[0, 0, Math.PI / 2]} castShadow><cylinderGeometry args={[0.18, 0.18, length, 20]} /><meshStandardMaterial color={CERAMIC} roughness={0.8} /></mesh>
+      {/* 繞線紋 */}
+      {Array.from({ length: windings }).map((_, i) => (
+        <mesh key={i} position={[-length / 2 + 0.2 + (i / (windings - 1)) * (length - 0.4), 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <torusGeometry args={[0.182, 0.006, 6, 20]} />
+          <meshStandardMaterial color="#6e5436" metalness={0.5} roughness={0.5} />
+        </mesh>
+      ))}
       <mesh position={[0, 0.32, 0]}><boxGeometry args={[length, 0.05, 0.08]} /><meshStandardMaterial color={STEEL} metalness={0.7} roughness={0.3} /></mesh>
       <mesh position={[-length / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.22, 0.22, 0.12, 16]} /><meshStandardMaterial color={PLASTIC} /></mesh>
       <mesh position={[length / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.22, 0.22, 0.12, 16]} /><meshStandardMaterial color={PLASTIC} /></mesh>
       <Post pos={[-length / 2, 0.34, 0]} />
-      {/* 整條滑軌即觸控命中區（按軌道任一點即跳到該處，並可直接拖） */}
       {draggable && (
         <mesh position={[0, 0.34, 0]} onPointerDown={down} onPointerMove={move} onPointerUp={end}
           onPointerOver={() => (document.body.style.cursor = 'grab')}
@@ -127,12 +195,13 @@ export function Rheostat({ pos, frac, length = 1.8, onFrac, onDragState, label =
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
       )}
-      {/* 滑塊（視覺） */}
+      {/* 滑塊（視覺）＋ 木質握柄 */}
       <group position={[x, 0.32, 0]}>
         <mesh castShadow>
           <boxGeometry args={[0.22, 0.34, 0.26]} />
           <meshStandardMaterial color={drag ? '#ffd36b' : STEEL} emissive={drag ? '#ffae42' : '#000'} emissiveIntensity={drag ? 0.5 : 0} metalness={0.6} roughness={0.35} />
         </mesh>
+        <mesh position={[0, 0.24, 0]}><sphereGeometry args={[0.07, 10, 10]} /><meshStandardMaterial color="#5a3d22" roughness={0.7} /></mesh>
         <Post pos={[0, 0.3, 0]} />
       </group>
       <Html position={[0, -0.42, 0]} center distanceFactor={13}>
@@ -154,9 +223,9 @@ export function ResistorUnit({ pos, label = 'R', glow = 0 }: { pos: [number, num
   )
 }
 
-// ── 燈泡（含點光源，真正發光），glassRef/lightRef 由關卡每幀調亮度 ─────────
+// ── 燈泡：真折射玻璃 + 螺紋 + 支撐絲，glassRef/lightRef 由關卡每幀調亮度 ──
 export function BulbLamp({ pos, glassRef, lightRef, broken = false }: {
-  pos: [number, number, number]; glassRef?: RefObject<THREE.MeshStandardMaterial | null>
+  pos: [number, number, number]; glassRef?: RefObject<THREE.MeshPhysicalMaterial | null>
   lightRef?: RefObject<THREE.PointLight | null>; broken?: boolean
 }) {
   return (
@@ -164,13 +233,28 @@ export function BulbLamp({ pos, glassRef, lightRef, broken = false }: {
       <mesh position={[0, 0.12, 0]} castShadow><cylinderGeometry args={[0.3, 0.34, 0.24, 20]} /><meshStandardMaterial color={PLASTIC} /></mesh>
       <Post pos={[-0.18, 0.02, 0.2]} />
       <Post pos={[0.18, 0.02, 0.2]} />
+      {/* 螺口（三圈螺紋） */}
       <mesh position={[0, 0.32, 0]}><cylinderGeometry args={[0.16, 0.18, 0.2, 16]} /><meshStandardMaterial color={BRASS} metalness={0.7} roughness={0.3} /></mesh>
+      {[0.27, 0.33, 0.39].map((y, i) => (
+        <mesh key={i} position={[0, y, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.172, 0.012, 8, 20]} />
+          <meshStandardMaterial color={BRASS} metalness={0.8} roughness={0.25} />
+        </mesh>
+      ))}
+      {/* 玻殼：真折射（過關發光時從玻璃裡看到燈絲） */}
       <mesh position={[0, 0.62, 0]}>
         <sphereGeometry args={[0.34, 24, 24]} />
-        <meshStandardMaterial ref={glassRef} color="#fff6d8" emissive="#ffcf66" emissiveIntensity={0.1} transparent opacity={0.72} roughness={0.1} />
+        <meshPhysicalMaterial ref={glassRef} color="#fff6d8" emissive="#ffcf66" emissiveIntensity={0.1}
+          transmission={0.9} thickness={0.25} roughness={0.06} ior={1.45} transparent opacity={0.9} />
       </mesh>
+      {/* 支撐絲 + 燈絲 */}
       {!broken && (
-        <mesh position={[0, 0.6, 0]}><torusGeometry args={[0.09, 0.014, 8, 18]} /><meshStandardMaterial color="#ffd36b" emissive="#ff8a00" emissiveIntensity={1.6} /></mesh>
+        <>
+          {([-0.05, 0.05] as const).map((sx) => (
+            <mesh key={sx} position={[sx, 0.52, 0]}><cylinderGeometry args={[0.006, 0.006, 0.16, 6]} /><meshStandardMaterial color="#8a939e" metalness={0.8} /></mesh>
+          ))}
+          <mesh position={[0, 0.6, 0]}><torusGeometry args={[0.09, 0.014, 8, 18]} /><meshStandardMaterial color="#ffd36b" emissive="#ff8a00" emissiveIntensity={1.6} /></mesh>
+        </>
       )}
       <pointLight ref={lightRef} position={[0, 0.62, 0]} intensity={0} color="#ffd27a" distance={16} decay={2} />
     </group>
@@ -191,7 +275,7 @@ export function CoilHelix({ pos = [0, 0, 0], axis = 'x', turns = 10, length = 2.
     }
     return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), N, tube, 8, false)
   }, [axis, turns, length, radius, tube])
-  return <mesh geometry={geo} position={pos} castShadow><meshStandardMaterial ref={matRef} color={color} metalness={0.6} roughness={0.35} emissive={color} emissiveIntensity={0} /></mesh>
+  return <mesh geometry={geo} position={pos} castShadow><meshStandardMaterial ref={matRef} color={color} metalness={0.6} roughness={0.25} envMapIntensity={1.5} emissive={color} emissiveIntensity={0} /></mesh>
 }
 
 export function IronRod({ pos, axis = 'x', length = 2.6, radius = 0.28 }: { pos: [number, number, number]; axis?: 'x' | 'y'; length?: number; radius?: number }) {
@@ -220,10 +304,16 @@ export function SupplyBox({ pos, label = 'DC 電源', ac = false }: { pos: [numb
   return (
     <group position={pos}>
       <mesh position={[0, 0.4, 0]} castShadow><boxGeometry args={[1.8, 0.8, 1]} /><meshStandardMaterial color="#33404f" metalness={0.3} roughness={0.6} /></mesh>
+      {/* 正面小儀表窗 */}
       <mesh position={[-0.4, 0.55, 0.51]} rotation={[Math.PI / 2, 0, 0]}><cylinderGeometry args={[0.16, 0.16, 0.08, 20]} /><meshStandardMaterial color="#cbd2da" metalness={0.6} roughness={0.3} /></mesh>
+      <mesh position={[-0.4, 0.55, 0.56]}><circleGeometry args={[0.12, 16]} /><meshStandardMaterial color="#f4f1e7" /></mesh>
+      {/* 散熱柵 */}
+      {Array.from({ length: 6 }).map((_, i) => (
+        <mesh key={i} position={[0.25 + i * 0.09, 0.28, 0.51]}><boxGeometry args={[0.03, 0.3, 0.02]} /><meshStandardMaterial color="#222b35" /></mesh>
+      ))}
       <Post pos={[0.45, 0.84, 0]} />
       <Post pos={[0.7, 0.84, 0]} />
-      <Html position={[0, 0.4, 0.52]} center distanceFactor={12}><div style={labelStyle('#1f6feb')}>{ac ? '～ 交流電源' : label}</div></Html>
+      <Html position={[0, 0.4, 0.62]} center distanceFactor={12}><div style={labelStyle('#1f6feb')}>{ac ? '～ 交流電源' : label}</div></Html>
     </group>
   )
 }
@@ -255,7 +345,6 @@ export function Knob({ pos, value, min, max, step, onChange, onDragState, label,
   const ang = (-0.75 + frac * 1.5) * Math.PI
   const norm = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a }
   const set = (v: number) => { const cl = Math.min(max, Math.max(min, v)); tick(); onChange(+(Math.round(cl / step) * step).toFixed(6)) }
-  // 以射線與旋鈕所在 Z 平面求交點 → 即使手指移出旋鈕仍能穩定取角（觸控順暢關鍵）
   const angleAt = (e: ThreeEvent<PointerEvent>): number | null => {
     const r = e.ray, dz = r.direction.z
     if (Math.abs(dz) < 1e-6) return null
@@ -283,11 +372,8 @@ export function Knob({ pos, value, min, max, step, onChange, onDragState, label,
   }
   return (
     <group position={pos}>
-      {/* 底座 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, -0.05]}><cylinderGeometry args={[size * 1.28, size * 1.32, 0.12, 28]} /><meshStandardMaterial color="#1b2230" metalness={0.6} roughness={0.45} /></mesh>
-      {/* 刻度環 */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.06]}><torusGeometry args={[size * 1.05, 0.025, 8, 40]} /><meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.5} toneMapped={false} /></mesh>
-      {/* 旋鈕本體 + 放大的隱形觸控命中區（繞圈拖曳；指標捕捉所有移動/放開） */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.12]}
         onPointerDown={down} onPointerMove={move} onPointerUp={end}
         onWheel={(e) => { e.stopPropagation(); set(value - Math.sign((e as unknown as WheelEvent).deltaY) * step) }}
@@ -296,13 +382,11 @@ export function Knob({ pos, value, min, max, step, onChange, onDragState, label,
         <cylinderGeometry args={[size, size, 0.22, 30]} />
         <meshStandardMaterial color={drag ? '#3a4a63' : '#2a3447'} metalness={0.75} roughness={0.3} emissive={accent} emissiveIntensity={drag ? 0.5 : 0.16} />
       </mesh>
-      {/* 放大隱形觸控盤（手指好按、好拖） */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0.24]}
         onPointerDown={down} onPointerMove={move} onPointerUp={end}>
         <cylinderGeometry args={[size * 1.5, size * 1.5, 0.02, 24]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      {/* 指標 */}
       <group rotation={[0, 0, -ang]}>
         <mesh position={[0, size * 0.64, 0.25]}><boxGeometry args={[0.07, size * 0.5, 0.05]} /><meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={1.5} toneMapped={false} /></mesh>
       </group>

@@ -1,14 +1,17 @@
 // ============================================================================
-// RoomShell.tsx — 年代化實驗室外殼（資料驅動 EraTheme）+ 神秘紙條道具。
+// RoomShell.tsx — 年代化實驗室外殼（資料驅動 EraTheme）：
+//   木紋桌面（程序貼圖）+ 黑板粉筆公式 + 年代道具 + 燭光 + 神秘紙條。
 // 拖曳元件時停用 OrbitControls。
 // ============================================================================
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { OrbitControls, Environment, Lightformer, ContactShadows } from '@react-three/drei'
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGame } from '../store/store'
 import { ERAS } from '../theme'
 import { CHALLENGES, type ChallengeId } from '../story/script'
+import { woodTexture, paperTexture } from './textures'
+import { Blackboard, EraProps } from './props'
 
 // ── 燭光（暖色閃爍點光 + 燭身） ──────────────────────────────────────────
 function Candle({ pos }: { pos: [number, number, number] }) {
@@ -35,6 +38,7 @@ function MysteryNote({ era }: { era: ChallengeId }) {
   const meta = CHALLENGES[era]
   const got = !!fragments[era]
   const glow = useRef<THREE.MeshStandardMaterial>(null)
+  const paper = useMemo(() => paperTexture(), [])
   useFrame((st) => {
     if (glow.current) glow.current.emissiveIntensity = got ? 0.05 : 0.18 + Math.sin(st.clock.elapsedTime * 1.6) * 0.1
   })
@@ -57,17 +61,8 @@ function MysteryNote({ era }: { era: ChallengeId }) {
         onPointerOver={() => (document.body.style.cursor = 'pointer')}
         onPointerOut={() => (document.body.style.cursor = 'default')}>
         <planeGeometry args={[0.46, 0.62]} />
-        <meshStandardMaterial ref={glow} color="#efe6cd" roughness={0.85} emissive="#ffd27a" emissiveIntensity={0.18} side={THREE.DoubleSide} />
+        <meshStandardMaterial ref={glow} map={paper} roughness={0.85} emissive="#ffd27a" emissiveIntensity={0.18} side={THREE.DoubleSide} />
       </mesh>
-      {/* 紙上墨跡（幾條暗線） */}
-      <group rotation={[-Math.PI / 2, 0, 0.3]} position={[0, 0.04, 0]}>
-        {[0.16, 0.06, -0.04, -0.14].map((y, i) => (
-          <mesh key={i} position={[0, y, 0.001]}>
-            <planeGeometry args={[0.3 - i * 0.03, 0.018]} />
-            <meshBasicMaterial color="#5a4a32" transparent opacity={0.8} />
-          </mesh>
-        ))}
-      </group>
     </group>
   )
 }
@@ -78,6 +73,7 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
   const cam = useThree((s) => s.camera)
   const { dragging } = useGame()
   const theme = ERAS[era]
+  const wood = useMemo(() => woodTexture(theme.desk), [theme.desk])
 
   useEffect(() => {
     cam.position.set(camera[0], camera[1], camera[2])
@@ -91,6 +87,7 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
 
       <OrbitControls enabled={!dragging} enablePan={false} minDistance={4} maxDistance={16} maxPolarAngle={Math.PI * 0.52} target={[0, 1.1, 0]} />
 
+      {/* 程序式環境（給金屬/玻璃反射；色溫跟年代走） */}
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={theme.dark ? 0.7 : 1.8} position={[0, 6, -6]} scale={[16, 9, 1]} color={theme.keyColor} />
         <Lightformer intensity={0.8} position={[-8, 3, 3]} scale={[9, 9, 1]} color={theme.fillColor} />
@@ -104,10 +101,10 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
       </directionalLight>
       <directionalLight position={[-6, 5, -3]} intensity={0.25} color={theme.fillColor} />
 
-      {/* 實驗桌面（年代木色） */}
+      {/* 實驗桌面（程序式木紋，年代色調） */}
       <mesh position={[0, -0.2, 0]} receiveShadow>
         <boxGeometry args={[22, 0.4, 8]} />
-        <meshStandardMaterial color={theme.desk} roughness={0.75} metalness={0.05} envMapIntensity={0.4} />
+        <meshStandardMaterial map={wood} color="#d8cdbd" roughness={0.78} metalness={0.04} envMapIntensity={0.4} />
       </mesh>
       {/* 發光章節色邊條（Bloom 拾取） */}
       <mesh position={[0, 0.02, 3.95]}>
@@ -133,10 +130,17 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
         <meshStandardMaterial color="#1c1410" />
       </mesh>
 
+      {/* 黑板：本關公式（年代敘事 × 物理教學） */}
+      <Blackboard era={era} />
+
+      {/* 年代道具（書堆/油燈/木櫃/磚拱/蒸汽管……依年代自動切換） */}
+      <EraProps era={era} />
+
       {/* 燭光（暖年代限定） */}
       {theme.candle && <Candle pos={[-4.6, 0.25, 2.6]} />}
       {theme.candle && <Candle pos={[4.8, 0.25, -1.8]} />}
 
+      {/* 柔和接觸陰影 */}
       <ContactShadows position={[0, 0.02, 0]} opacity={theme.dark ? 0.6 : 0.45} scale={24} blur={2.6} far={5} resolution={1024} color="#000508" />
 
       {/* 神秘紙條（海龜湯環境敘事） */}

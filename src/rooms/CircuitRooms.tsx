@@ -27,7 +27,7 @@ export function LampRoom() {
   const [burntUI, setBurntUI] = useState(false)
   const t = useRef(0)
   const frame = useRef(0)
-  const glass = useRef<THREE.MeshStandardMaterial>(null)
+  const glass = useRef<THREE.MeshPhysicalMaterial>(null)
   const lightR = useRef<THREE.PointLight>(null)
   const amm = useRef<THREE.Group>(null)
   const settle = useSettle()

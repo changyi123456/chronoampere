@@ -6,7 +6,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
-  Html, Environment, Lightformer, MeshReflectorMaterial, Sparkles, Stars, Float,
+  Html, Environment, Lightformer, MeshReflectorMaterial, Sparkles, Stars, Float, Trail,
 } from '@react-three/drei'
 import * as THREE from 'three'
 import { useGame } from '../store/store'
@@ -15,6 +15,12 @@ import { touch } from '../game/touch'
 import { CHALLENGE_ORDER, CHALLENGES } from '../story/script'
 import type { ChallengeId } from '../story/script'
 import { DOOR_RADIUS } from '../theme'
+import { nebulaTexture, circuitTexture, runeTexture } from './textures'
+
+// 每道門楔石上的發光符文（對應該關物理主題）
+const RUNES: Record<ChallengeId, string> = {
+  lamp: 'Ω', split: 'Σ', cyclo: 'e', maglock: 'B', dynamo: 'Φ', xfmr: 'N',
+}
 
 interface DoorInfo { id: ChallengeId; pos: THREE.Vector3; color: string; title: string }
 
@@ -68,9 +74,41 @@ function SwirlDisc({ color, near }: { color: string; near: boolean }) {
   )
 }
 
+// ── 被吸入傳送門的能量粒子（沿螺線收束到漩渦面） ────────────────────────
+function IntakeParticles({ color, near }: { color: string; near: boolean }) {
+  const N = 30
+  const data = useMemo(() => Array.from({ length: N }).map(() => ({
+    a: Math.random() * Math.PI * 2,
+    r: 0.4 + Math.random() * 2.2,
+    sp: 0.5 + Math.random() * 0.7,
+  })), [])
+  const obj = useMemo(() => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 3), 3))
+    const m = new THREE.PointsMaterial({ color, size: 0.07, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false })
+    m.toneMapped = false
+    return new THREE.Points(g, m)
+  }, [color])
+  useFrame((_, dt) => {
+    const pos = obj.geometry.attributes.position.array as Float32Array
+    const speed = near ? 2.1 : 1
+    for (let i = 0; i < N; i++) {
+      const d = data[i]
+      d.r -= d.sp * dt * speed
+      d.a += dt * (1.6 + (2.6 - d.r) * 1.2)
+      if (d.r < 0.12) { d.r = 1.8 + Math.random() * 1.2; d.a = Math.random() * Math.PI * 2 }
+      pos[i * 3] = Math.cos(d.a) * d.r
+      pos[i * 3 + 1] = 2.0 + Math.sin(d.a) * d.r * 0.92
+      pos[i * 3 + 2] = 0.16 + Math.sin(d.a * 2) * 0.05
+    }
+    obj.geometry.attributes.position.needsUpdate = true
+  })
+  return <primitive object={obj} />
+}
+
 // ── 時光之門（拱框 + 旋轉能量漩渦 + 傳送面） ─────────────────────────────
-function PortalGate({ pos, color, title, done, near, onEnter, showLabel = true }: {
-  pos: THREE.Vector3; color: string; title: string; done: boolean; near: boolean; onEnter: () => void; showLabel?: boolean
+function PortalGate({ pos, color, title, rune, done, near, onEnter, showLabel = true }: {
+  pos: THREE.Vector3; color: string; title: string; rune: string; done: boolean; near: boolean; onEnter: () => void; showLabel?: boolean
 }) {
   const facing = Math.atan2(pos.x, pos.z) + Math.PI
   const c = done ? '#34d399' : color
@@ -81,11 +119,29 @@ function PortalGate({ pos, color, title, done, near, onEnter, showLabel = true }
         <cylinderGeometry args={[1.7, 1.9, 0.3, 24]} />
         <meshStandardMaterial color="#10151f" metalness={0.7} roughness={0.4} envMapIntensity={1} />
       </mesh>
-      {/* 外拱框 */}
-      <mesh position={[0, 2.0, 0]} castShadow>
-        <torusGeometry args={[1.55, 0.14, 20, 48]} />
-        <meshStandardMaterial color="#1a2230" metalness={0.9} roughness={0.25} emissive={c} emissiveIntensity={near ? 0.9 : 0.35} envMapIntensity={1.2} />
-      </mesh>
+      {/* 分段石碑環（12 段，段間留縫透出漩渦光） */}
+      {Array.from({ length: 12 }).map((_, i) => {
+        const a = ((i + 0.5) / 12) * Math.PI * 2
+        return (
+          <mesh key={i} position={[Math.cos(a) * 1.55, 2.0 + Math.sin(a) * 1.55, 0]} rotation={[0, 0, a]} castShadow>
+            <boxGeometry args={[0.34, 0.6, 0.24]} />
+            <meshStandardMaterial color="#1a2230" metalness={0.85} roughness={0.3} emissive={c} emissiveIntensity={near ? 0.8 : 0.28} envMapIntensity={1.2} />
+          </mesh>
+        )
+      })}
+      {/* 楔石（keystone）+ 發光符文 */}
+      <group position={[0, 3.7, 0]}>
+        <mesh castShadow>
+          <boxGeometry args={[0.58, 0.52, 0.32]} />
+          <meshStandardMaterial color="#222c3d" metalness={0.85} roughness={0.28} emissive={c} emissiveIntensity={near ? 0.5 : 0.18} />
+        </mesh>
+        <mesh position={[0, 0, 0.17]}>
+          <planeGeometry args={[0.4, 0.4]} />
+          <meshBasicMaterial map={runeTexture(rune, c)} transparent toneMapped={false} />
+        </mesh>
+      </group>
+      {/* 被吸入的能量粒子流 */}
+      <IntakeParticles color={c} near={near} />
       {/* shader 漩渦傳送面（HDR 輸出 → Bloom 泛光） */}
       <SwirlDisc color={c} near={near} />
       {/* 互動命中區 */}
@@ -97,7 +153,7 @@ function PortalGate({ pos, color, title, done, near, onEnter, showLabel = true }
       </mesh>
       <pointLight position={[0, 2, 0.5]} color={c} intensity={near ? 14 : 6} distance={9} />
       {showLabel && (
-        <Html position={[0, 3.7, 0]} center distanceFactor={15} occlude={false}>
+        <Html position={[0, 4.3, 0]} center distanceFactor={15} occlude={false}>
           <div style={{
             whiteSpace: 'nowrap', padding: '4px 12px',
             background: 'rgba(8,12,22,0.82)', border: `1px solid ${c}`, borderRadius: 999,
@@ -140,19 +196,51 @@ function ChronoCore({ onClick }: { onClick: () => void }) {
 }
 
 // ── 玩家：懸浮探測機 ─────────────────────────────────────────────────────
+// 複合機身（殼體 + 前視窗 + 雙推進莢艙）+ 拖尾光帶 + 噴口脈動
 function Drone({ inner }: { inner: React.RefObject<THREE.Group | null> }) {
   const halo = useRef<THREE.Mesh>(null)
+  const exL = useRef<THREE.MeshStandardMaterial>(null)
+  const exR = useRef<THREE.MeshStandardMaterial>(null)
   useFrame((st, dt) => {
     if (halo.current) halo.current.rotation.y += dt * 1.5
     if (inner.current) inner.current.position.y = 1.1 + Math.sin(st.clock.elapsedTime * 2.5) * 0.12
+    const pulse = 1.6 + Math.sin(st.clock.elapsedTime * 14) * 0.5
+    if (exL.current) exL.current.emissiveIntensity = pulse
+    if (exR.current) exR.current.emissiveIntensity = pulse
   })
   return (
-    <group ref={inner} position={[0, 1.1, 0]}>
-      <mesh castShadow><icosahedronGeometry args={[0.34, 1]} /><meshStandardMaterial color="#cfd8e6" metalness={0.9} roughness={0.2} envMapIntensity={1.4} /></mesh>
-      <mesh position={[0, 0, 0.3]}><sphereGeometry args={[0.1, 16, 16]} /><meshStandardMaterial color="#ffd36b" emissive="#ffae42" emissiveIntensity={2} toneMapped={false} /></mesh>
-      <mesh ref={halo} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.55, 0.03, 10, 40]} /><meshStandardMaterial color="#5eead4" emissive="#5eead4" emissiveIntensity={1.4} toneMapped={false} /></mesh>
-      <pointLight position={[0, 0.4, 0]} color="#bfe9ff" intensity={6} distance={6} />
-    </group>
+    <Trail width={0.55} length={4.5} color={new THREE.Color('#2ea394')} attenuation={(t) => t * t}>
+      <group ref={inner} position={[0, 1.1, 0]}>
+        {/* 主殼（壓扁流線體） */}
+        <mesh castShadow scale={[1, 0.72, 1.2]}>
+          <sphereGeometry args={[0.32, 24, 18]} />
+          <meshStandardMaterial color="#cfd8e6" metalness={0.9} roughness={0.22} envMapIntensity={1.5} />
+        </mesh>
+        {/* 前視窗 */}
+        <mesh position={[0, 0.05, 0.3]} scale={[1, 0.7, 0.6]}>
+          <sphereGeometry args={[0.14, 16, 12]} />
+          <meshStandardMaterial color="#0a1a26" emissive="#38d0ff" emissiveIntensity={1.4} metalness={0.4} roughness={0.15} toneMapped={false} />
+        </mesh>
+        {/* 雙推進莢艙 + 噴口 */}
+        {([-1, 1] as const).map((sd) => (
+          <group key={sd} position={[sd * 0.36, -0.04, -0.08]} rotation={[Math.PI / 2, 0, 0]}>
+            <mesh castShadow>
+              <capsuleGeometry args={[0.085, 0.3, 6, 12]} />
+              <meshStandardMaterial color="#9aa7bd" metalness={0.85} roughness={0.3} />
+            </mesh>
+            <mesh position={[0, 0.24, 0]}>
+              <sphereGeometry args={[0.06, 10, 10]} />
+              <meshStandardMaterial ref={sd < 0 ? exL : exR} color="#aef2ff" emissive="#38d0ff" emissiveIntensity={1.6} toneMapped={false} />
+            </mesh>
+          </group>
+        ))}
+        {/* 頂部訊號燈 */}
+        <mesh position={[0, 0.26, -0.05]}><sphereGeometry args={[0.05, 10, 10]} /><meshStandardMaterial color="#ffd36b" emissive="#ffae42" emissiveIntensity={2} toneMapped={false} /></mesh>
+        {/* 光環 */}
+        <mesh ref={halo} rotation={[Math.PI / 2, 0, 0]}><torusGeometry args={[0.55, 0.03, 10, 40]} /><meshStandardMaterial color="#5eead4" emissive="#5eead4" emissiveIntensity={1.4} toneMapped={false} /></mesh>
+        <pointLight position={[0, 0.4, 0]} color="#bfe9ff" intensity={6} distance={6} />
+      </group>
+    </Trail>
   )
 }
 
@@ -275,6 +363,11 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
       <color attach="background" args={['#04060d']} />
       <fog attach="fog" args={['#04060d', 16, 40]} />
       <Stars radius={90} depth={45} count={1600} factor={3.2} fade speed={0.4} />
+      {/* 遠景星雲（天球內面，程序貼圖） */}
+      <mesh>
+        <sphereGeometry args={[100, 32, 24]} />
+        <meshBasicMaterial map={nebulaTexture()} side={THREE.BackSide} transparent opacity={0.85} depthWrite={false} fog={false} />
+      </mesh>
 
       <Environment resolution={256} frames={1}>
         <Lightformer intensity={1.6} position={[0, 8, -8]} scale={[14, 8, 1]} color="#9fd4ff" />
@@ -291,6 +384,11 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
         <circleGeometry args={[14, 80]} />
         {/* depthScale 深度模糊在部分 GPU 上會與後製互相干擾產生閃爍 → 移除 */}
         <MeshReflectorMaterial blur={[300, 90]} resolution={1024} mixBlur={1} mixStrength={28} roughness={0.85} color="#0a0f1c" metalness={0.65} mirror={0.45} />
+      </mesh>
+      {/* 時光電路盤（地板發光紋路，加法混合疊在反射地板上） */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
+        <circleGeometry args={[13.6, 64]} />
+        <meshBasicMaterial map={circuitTexture()} transparent opacity={0.55} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
       </mesh>
       {/* 中央發光環刻（抬高避免與反射地板 z-fighting） */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
@@ -321,7 +419,7 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
 
       {/* 六道時光之門 */}
       {doors.map((door) => (
-        <PortalGate key={door.id} pos={door.pos} color={door.color} title={door.title}
+        <PortalGate key={door.id} pos={door.pos} color={door.color} title={door.title} rune={RUNES[door.id]}
           done={!!solved[door.id]} near={nearDoor === door.id} showLabel={!cinematic} onEnter={() => { if (!cinematic) setScene(door.id) }} />
       ))}
 
@@ -342,4 +440,8 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
       {!cinematic && (
         <group ref={player} position={[0, 1.1, 4.5]}>
           <Drone inner={droneInner} />
-      
+              </group>
+      )}
+    </group>
+  )
+}

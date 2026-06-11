@@ -88,7 +88,7 @@ export function CycloRoom() {
   return (
     <RoomShell era="cyclo" accent="#26a0c0" camera={[0, 2.4, 8.5]}>
       {/* 玻璃球管 */}
-      <mesh position={[0, 1.9, 0]}><sphereGeometry args={[2.4, 32, 32]} /><meshStandardMaterial color="#cfe8ff" transparent opacity={0.12} roughness={0.05} /></mesh>
+      <mesh position={[0, 1.9, 0]}><sphereGeometry args={[2.4, 32, 32]} /><meshPhysicalMaterial color="#eaf4ff" transmission={1} thickness={0.4} roughness={0.05} ior={1.4} /></mesh>
       {/* 亥姆霍茲線圈（兩共軸銅環） */}
       {[-1.0, 1.0].map((z) => (
         <mesh key={z} position={[0, 1.9, z]}><torusGeometry args={[2.7, 0.12, 16, 48]} /><meshStandardMaterial color={COPPER} metalness={0.6} roughness={0.35} /></mesh>
@@ -202,7 +202,7 @@ export function MaglockRoom() {
   return (
     <RoomShell era="maglock" accent="#22c55e" camera={[0, 2.4, 9.5]}>
       {/* 玻璃管 */}
-      <mesh position={[(gunX + screenX) / 2, cy, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[1.6, 1.6, screenX - gunX + 1, 24, 1, true]} /><meshStandardMaterial color="#cfe8ff" transparent opacity={0.08} side={THREE.DoubleSide} /></mesh>
+      <mesh position={[(gunX + screenX) / 2, cy, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[1.6, 1.6, screenX - gunX + 1, 24, 1, true]} /><meshPhysicalMaterial color="#eaf4ff" transmission={1} thickness={0.18} roughness={0.07} ior={1.4} side={THREE.DoubleSide} /></mesh>
       {/* 電子槍 */}
       <mesh position={[gunX - 0.4, cy, 0]} rotation={[0, 0, Math.PI / 2]}><cylinderGeometry args={[0.3, 0.3, 0.8, 16]} /><meshStandardMaterial color="#2b3340" metalness={0.4} /></mesh>
       <Html position={[gunX - 0.4, cy - 0.7, 0]} center distanceFactor={14}><div style={lab('#9a7b3a')}>電子槍（加速 Va）</div></Html>
