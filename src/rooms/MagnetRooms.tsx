@@ -99,12 +99,12 @@ export function CycloRoom() {
       <mesh position={[0, gunY - 0.2, 0]}><cylinderGeometry args={[0.18, 0.22, 0.5, 16]} /><meshStandardMaterial color="#2b3340" metalness={0.4} roughness={0.5} /></mesh>
       <Html position={[0, -0.05, 0]} center distanceFactor={13}><div style={lab('#9a7b3a')}>電子槍</div></Html>
 
-      {/* 目標半徑環（5 cm 參考） */}
-      <mesh position={[0, gunY + targetR, 0]}><torusGeometry args={[targetR, 0.025, 12, 48]} /><meshStandardMaterial color={rOK ? '#2e9e6b' : '#94a3b8'} emissive={rOK ? '#2e9e6b' : '#000'} emissiveIntensity={rOK ? 0.8 : 0} /></mesh>
+      {/* 目標半徑環（5 cm 參考）：z 偏移避免與電子束圈重合時 z-fighting */}
+      <mesh position={[0, gunY + targetR, -0.06]}><torusGeometry args={[targetR, 0.025, 12, 48]} /><meshStandardMaterial color={rOK ? '#2e9e6b' : '#94a3b8'} emissive={rOK ? '#2e9e6b' : '#000'} emissiveIntensity={rOK ? 0.8 : 0} /></mesh>
       {/* 電子束圓 + 沿圓周運動的電子：只有按下「啟動」後才出現 */}
       {running && (
         <>
-          <mesh position={[0, gunY + Rscene, 0]}><torusGeometry args={[Rscene, 0.04, 12, 64]} /><meshStandardMaterial color="#26d0c0" emissive="#26d0c0" emissiveIntensity={1.1} /></mesh>
+          <mesh position={[0, gunY + Rscene, 0.06]}><torusGeometry args={[Rscene, 0.04, 12, 64]} /><meshStandardMaterial color="#26d0c0" emissive="#26d0c0" emissiveIntensity={1.1} /></mesh>
           <group ref={electrons}>
             {Array.from({ length: 8 }).map((_, i) => (
               <mesh key={i}><sphereGeometry args={[0.075, 8, 8]} /><meshStandardMaterial color="#ffffff" emissive="#aef" emissiveIntensity={1.2} /></mesh>

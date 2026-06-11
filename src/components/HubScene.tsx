@@ -291,8 +291,8 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
         <circleGeometry args={[14, 80]} />
         <MeshReflectorMaterial blur={[300, 90]} resolution={1024} mixBlur={1} mixStrength={28} roughness={0.85} depthScale={1.1} minDepthThreshold={0.4} maxDepthThreshold={1.3} color="#0a0f1c" metalness={0.65} mirror={0.45} />
       </mesh>
-      {/* 中央發光環刻 */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
+      {/* 中央發光環刻（抬高避免與反射地板 z-fighting） */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.04, 0]}>
         <ringGeometry args={[2.6, 2.85, 80]} />
         <meshStandardMaterial color="#5eead4" emissive="#5eead4" emissiveIntensity={1.6} toneMapped={false} side={THREE.DoubleSide} />
       </mesh>

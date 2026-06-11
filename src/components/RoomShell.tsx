@@ -41,7 +41,7 @@ function MysteryNote({ era }: { era: ChallengeId }) {
   return (
     <group position={theme.notePos} rotation={[0, 0.5, 0]}>
       <mesh
-        rotation={[-Math.PI / 2, 0, 0.3]} position={[0, 0.012, 0]} castShadow
+        rotation={[-Math.PI / 2, 0, 0.3]} position={[0, 0.035, 0]} castShadow
         onClick={(e) => {
           e.stopPropagation()
           setDialogue(got
@@ -60,7 +60,7 @@ function MysteryNote({ era }: { era: ChallengeId }) {
         <meshStandardMaterial ref={glow} color="#efe6cd" roughness={0.85} emissive="#ffd27a" emissiveIntensity={0.18} side={THREE.DoubleSide} />
       </mesh>
       {/* 紙上墨跡（幾條暗線） */}
-      <group rotation={[-Math.PI / 2, 0, 0.3]} position={[0, 0.016, 0]}>
+      <group rotation={[-Math.PI / 2, 0, 0.3]} position={[0, 0.04, 0]}>
         {[0.16, 0.06, -0.04, -0.14].map((y, i) => (
           <mesh key={i} position={[0, y, 0.001]}>
             <planeGeometry args={[0.3 - i * 0.03, 0.018]} />
@@ -120,15 +120,15 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
         <meshStandardMaterial color={theme.wall} roughness={1} />
       </mesh>
       {/* 牆上的窗（發光面：年代窗外光） */}
-      <mesh position={[-6.5, 5.4, -6.95]}>
+      <mesh position={[-6.5, 5.4, -6.85]}>
         <planeGeometry args={[2.4, 3.4]} />
         <meshStandardMaterial color={theme.windowGlow} emissive={theme.windowGlow} emissiveIntensity={theme.dark ? 0.25 : 1.1} toneMapped={false} />
       </mesh>
-      <mesh position={[-6.5, 5.4, -6.9]}>
+      <mesh position={[-6.5, 5.4, -6.75]}>
         <boxGeometry args={[2.6, 0.1, 0.06]} />
         <meshStandardMaterial color="#1c1410" />
       </mesh>
-      <mesh position={[-6.5, 5.4, -6.9]}>
+      <mesh position={[-6.5, 5.4, -6.75]}>
         <boxGeometry args={[0.1, 3.6, 0.06]} />
         <meshStandardMaterial color="#1c1410" />
       </mesh>
