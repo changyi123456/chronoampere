@@ -15,6 +15,7 @@ import { touch } from '../game/touch'
 import { CHALLENGE_ORDER, CHALLENGES } from '../story/script'
 import type { ChallengeId } from '../story/script'
 import { DOOR_RADIUS } from '../theme'
+import { EPISODES } from '../story/narrative'
 import { nebulaTexture, circuitTexture, runeTexture } from './textures'
 
 // 每道門楔石上的發光符文（對應該關物理主題）
@@ -107,11 +108,11 @@ function IntakeParticles({ color, near }: { color: string; near: boolean }) {
 }
 
 // ── 時光之門（拱框 + 旋轉能量漩渦 + 傳送面） ─────────────────────────────
-function PortalGate({ pos, color, title, rune, done, near, onEnter, showLabel = true }: {
-  pos: THREE.Vector3; color: string; title: string; rune: string; done: boolean; near: boolean; onEnter: () => void; showLabel?: boolean
+function PortalGate({ pos, color, title, rune, done, near, unlocked, onEnter, showLabel = true }: {
+  pos: THREE.Vector3; color: string; title: string; rune: string; done: boolean; near: boolean; unlocked: boolean; onEnter: () => void; showLabel?: boolean
 }) {
   const facing = Math.atan2(pos.x, pos.z) + Math.PI
-  const c = done ? '#34d399' : color
+  const c = unlocked ? (done ? '#34d399' : color) : '#334155'
   return (
     <group position={[pos.x, 0, pos.z]} rotation={[0, facing, 0]}>
       {/* 底座 */}
@@ -141,17 +142,19 @@ function PortalGate({ pos, color, title, rune, done, near, onEnter, showLabel = 
         </mesh>
       </group>
       {/* 被吸入的能量粒子流 */}
-      <IntakeParticles color={c} near={near} />
+      {unlocked && <IntakeParticles color={c} near={near} />}
       {/* shader 漩渦傳送面（HDR 輸出 → Bloom 泛光） */}
-      <SwirlDisc color={c} near={near} />
+      {unlocked
+        ? <SwirlDisc color={c} near={near} />
+        : <mesh position={[0, 2, 0]}><circleGeometry args={[1.4, 32]} /><meshStandardMaterial color="#07101d" roughness={0.9} /></mesh>}
       {/* 互動命中區 */}
-      <mesh position={[0, 1.9, 0]} onClick={(e) => { e.stopPropagation(); onEnter() }}
-        onPointerOver={() => (document.body.style.cursor = 'pointer')}
+      <mesh position={[0, 1.9, 0]} onClick={(e) => { e.stopPropagation(); if (unlocked) onEnter() }}
+        onPointerOver={() => (document.body.style.cursor = unlocked ? 'pointer' : 'not-allowed')}
         onPointerOut={() => (document.body.style.cursor = 'default')}>
         <circleGeometry args={[1.4, 24]} />
         <meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} />
       </mesh>
-      <pointLight position={[0, 2, 0.5]} color={c} intensity={near ? 14 : 6} distance={9} />
+      <pointLight position={[0, 2, 0.5]} color={c} intensity={unlocked ? (near ? 14 : 6) : 0.8} distance={9} />
       {showLabel && (
         <Html position={[0, 4.3, 0]} center distanceFactor={15} occlude={false}>
           <div style={{
@@ -159,7 +162,7 @@ function PortalGate({ pos, color, title, rune, done, near, onEnter, showLabel = 
             background: 'rgba(8,12,22,0.82)', border: `1px solid ${c}`, borderRadius: 999,
             color: '#eaf2ff', font: "12px/1.4 system-ui,'Microsoft JhengHei',sans-serif",
             boxShadow: near ? `0 0 16px ${c}` : 'none', pointerEvents: 'none',
-          }}>{done ? '✓ ' : '◇ '}{title}</div>
+          }}>{unlocked ? (done ? '✓ ' : '◇ ') : '🔒 '}{title}</div>
         </Html>
       )}
     </group>
@@ -287,14 +290,15 @@ function GuideCompanion({ onTalk }: { onTalk: () => void }) {
 }
 
 export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
-  const { solved, setScene, setNearDoor, nearDoor, allSolved, setDialogue } = useGame()
+  const { solved, fragmentCount, storyReady, currentAct, setScene, setNearDoor, nearDoor, setDialogue } = useGame()
   const keys = useKeyboard()
   const player = useRef<THREE.Group>(null)
   const droneInner = useRef<THREE.Group>(null)
   const vel = useRef(new THREE.Vector3())
   const bank = useRef(0)
   const interactLatch = useRef(false)
-  const { camera } = useThree()
+  const { camera, size } = useThree()
+  const lowTier = size.width < 760
   const [npcOpen, setNpcOpen] = useState(true)
 
   const doors = useMemo<DoorInfo[]>(() =>
@@ -346,7 +350,11 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
 
     let best: ChallengeId | null = null
     let bestDist = Infinity
-    for (const door of doors) { const dist = g.position.distanceTo(door.pos); if (dist < bestDist) { bestDist = dist; best = door.id } }
+    for (const door of doors) {
+      if (EPISODES[door.id].act > currentAct.id) continue
+      const dist = g.position.distanceTo(door.pos)
+      if (dist < bestDist) { bestDist = dist; best = door.id }
+    }
     const near = bestDist < 2.6 ? best : null
     if (near !== nearDoor) setNearDoor(near)
     const interact = k.interact || touch.interact
@@ -369,7 +377,7 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
         <meshBasicMaterial map={nebulaTexture()} side={THREE.BackSide} transparent opacity={0.85} depthWrite={false} fog={false} />
       </mesh>
 
-      <Environment resolution={256} frames={1}>
+      <Environment resolution={lowTier ? 128 : 256} frames={1}>
         <Lightformer intensity={1.6} position={[0, 8, -8]} scale={[14, 8, 1]} color="#9fd4ff" />
         <Lightformer intensity={1.0} position={[-8, 3, 4]} scale={[8, 8, 1]} color="#7c5cff" />
         <Lightformer intensity={1.0} position={[8, 3, 4]} scale={[8, 8, 1]} color="#ffce8a" />
@@ -377,13 +385,15 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
 
       <ambientLight intensity={0.25} />
       <hemisphereLight args={['#26406b', '#05070f', 0.5]} />
-      <directionalLight position={[6, 12, 6]} intensity={0.6} castShadow shadow-mapSize={[2048, 2048]} />
+      <directionalLight position={[6, 12, 6]} intensity={0.6} castShadow={!lowTier} shadow-mapSize={lowTier ? [512, 512] : [2048, 2048]} />
 
       {/* 反射地板 */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <circleGeometry args={[14, 80]} />
         {/* depthScale 深度模糊在部分 GPU 上會與後製互相干擾產生閃爍 → 移除 */}
-        <MeshReflectorMaterial blur={[300, 90]} resolution={1024} mixBlur={1} mixStrength={28} roughness={0.85} color="#0a0f1c" metalness={0.65} mirror={0.45} />
+        {lowTier
+          ? <meshStandardMaterial color="#0a0f1c" roughness={0.86} metalness={0.5} />
+          : <MeshReflectorMaterial blur={[300, 90]} resolution={1024} mixBlur={1} mixStrength={28} roughness={0.85} color="#0a0f1c" metalness={0.65} mirror={0.45} />}
       </mesh>
       {/* 時光電路盤（地板發光紋路，加法混合疊在反射地板上） */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.03, 0]}>
@@ -409,9 +419,9 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
               boxShadow: '0 0 24px rgba(56,189,248,0.4)',
             }}>
               <b style={{ color: '#7fe9ff' }}>時光電弧儀・導航核心</b><br />
-              {allSolved
-                ? '六項實驗都已重現、六張殘頁已收齊。回到中央光環，拼出那張紙條的真相吧。'
-                : '走近任一道時光之門按 E（或點擊門）進入。重現六項歷史實驗，收集散落各年代的殘頁。'}
+              {storyReady
+                ? '六個模組與六段因果紀錄已同步。中央核心等待你的最終推理與授權。'
+                : `${currentAct.title}：${currentAct.directive}（殘頁 ${fragmentCount}/6）`}
             </div>
           </Html>
         )}
@@ -420,7 +430,7 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
       {/* 六道時光之門 */}
       {doors.map((door) => (
         <PortalGate key={door.id} pos={door.pos} color={door.color} title={door.title} rune={RUNES[door.id]}
-          done={!!solved[door.id]} near={nearDoor === door.id} showLabel={!cinematic} onEnter={() => { if (!cinematic) setScene(door.id) }} />
+          done={!!solved[door.id]} near={nearDoor === door.id} unlocked={EPISODES[door.id].act <= currentAct.id} showLabel={!cinematic} onEnter={() => { if (!cinematic) setScene(door.id) }} />
       ))}
 
       {/* 常駐引導 NPC */}
@@ -429,9 +439,9 @@ export function HubScene({ cinematic = false }: { cinematic?: boolean }) {
         accent: '#5eead4',
         lines: [
           '我是 AMP，時光電弧儀的導引體，會一路陪著你。',
-          '任務：走進六道時光之門，重現歐姆、克希何夫、湯姆森、布勞恩、法拉第與變壓器時代的實驗。',
-          '每重現一項實驗，我會出一道選擇題；答對就能取得那個年代的「殘頁」線索。',
-          '集滿六張殘頁，回到中央光環，我們一起拼出那張神秘紙條的真相。',
+          `${currentAct.title}：${currentAct.question}`,
+          '每關先提交假說，再用實驗驗證。完成後，你必須親手留下那個年代會保存的紀錄。',
+          '證據牆不只回答問題，也能檢定祕密學會、導師、穿越者與閉合迴圈等假說。',
           '移動：WASD／方向鍵；靠近門按 E 進入。隨時點我對話，或打開「任務日誌」查看進度。',
         ],
       })} />}

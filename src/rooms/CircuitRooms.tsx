@@ -15,6 +15,7 @@ import {
 } from '../game/physics'
 import { resetLive, pushSample, live } from '../game/live'
 import { useSettle } from '../game/useSettle'
+import { useFixedStep } from '../game/useFixedStep'
 
 type P3 = [number, number, number]
 function needleAngle(frac: number) { return (0.5 - Math.min(Math.max(frac, 0), 1)) * 1.6 }
@@ -24,37 +25,41 @@ export function LampRoom() {
   const { values, running, resetToken, setSolved, setRunning, patch, setDragging, dragging } = useGame()
   const T = useRef(CIRCUIT.Tamb)
   const burnt = useRef(false)
-  const [burntUI, setBurntUI] = useState(false)
+  const [burntToken, setBurntToken] = useState<number | null>(null)
+  const burntUI = burntToken === resetToken
   const t = useRef(0)
   const frame = useRef(0)
   const glass = useRef<THREE.MeshPhysicalMaterial>(null)
   const lightR = useRef<THREE.PointLight>(null)
   const amm = useRef<THREE.Group>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   const epsRef = useRef(values.lamp_eps)
   const rvRef = useRef(values.lamp_rv)
   useEffect(() => { epsRef.current = values.lamp_eps; rvRef.current = values.lamp_rv }, [values.lamp_eps, values.lamp_rv])
 
   useEffect(() => {
-    T.current = CIRCUIT.Tamb; burnt.current = false; setBurntUI(false); t.current = 0
+    T.current = CIRCUIT.Tamb; burnt.current = false; t.current = 0
     resetLive({ aLabel: '燈絲溫度 T', aColor: '#e0852a', yMin: 0, yMax: 140, yUnit: '°C', targetY: CIRCUIT.Tburn })
   }, [resetToken])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const eps = epsRef.current, rv = rvRef.current
     // 瞬時電流/功率（燈絲電阻 R(T) 隨溫度變 → 冷開機有湧浪電流）
-    const I = lampCurrentAt(eps, rv, T.current), P = lampPowerAt(eps, rv, T.current)
+    const I = lampCurrentAt(eps, rv, T.current)
     const steady = lampSteady(eps, rv) // 穩態自洽解（過關判定用）
     const epsOK = Math.abs(eps - CIRCUIT.epsTarget) <= CIRCUIT.epsTol
     const IOK = Math.abs(steady.I - CIRCUIT.iRated) <= CIRCUIT.tol
-    if (running && !burnt.current) {
-      T.current = stepFilament(T.current, P, 1 / 60)
-      t.current += 1 / 60
-      if (T.current >= CIRCUIT.Tburn) { burnt.current = true; setBurntUI(true); live.status = 'fail'; live.readout = ['✗ 燈絲熔斷！電流過大', `I = ${I.toFixed(2)} A`]; setRunning(false) }
-      if (!burnt.current && epsOK && IOK && T.current >= 0.9 * steady.T && settle(`${eps}|${rv}`, dragging)) { live.status = 'done'; setSolved('lamp') }
+    const stable = settle(`${eps}|${rv}`, dragging, running ? delta : 0)
+    advance(delta, running && !burnt.current, (dt) => {
+      const stepPower = lampPowerAt(eps, rv, T.current)
+      T.current = stepFilament(T.current, stepPower, dt)
+      t.current += dt
+      if (T.current >= CIRCUIT.Tburn) { burnt.current = true; setBurntToken(resetToken); live.status = 'fail'; live.readout = ['✗ 燈絲熔斷！電流過大', `I = ${I.toFixed(2)} A`]; setRunning(false) }
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +T.current.toFixed(1) })
-    }
+    })
+    if (running && !burnt.current && epsOK && IOK && T.current >= 0.9 * steady.T && stable) { live.status = 'done'; setSolved('lamp') }
     if (live.status !== 'fail' && live.status !== 'done') live.status = running ? 'run' : 'idle'
     if (live.status !== 'fail') live.readout = [
       `電源 ε = ${eps.toFixed(1)} V ${epsOK ? '✓' : '（需 8.0）'}`,
@@ -91,34 +96,37 @@ export function SplitRoom() {
   const { values, running, resetToken, setSolved, setRunning, dragging, patch, setDragging } = useGame()
   const Tf = useRef(SPLIT.Tamb)
   const blown = useRef(false)
-  const [blownUI, setBlownUI] = useState(false)
+  const [blownToken, setBlownToken] = useState<number | null>(null)
+  const blownUI = blownToken === resetToken
   const t = useRef(0)
   const frame = useRef(0)
   const a1 = useRef<THREE.Group>(null)
   const a2 = useRef<THREE.Group>(null)
   const aMain = useRef<THREE.Group>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   const epsRef = useRef(values.split_eps)
   const r2Ref = useRef(values.split_r2)
   useEffect(() => { epsRef.current = values.split_eps; r2Ref.current = values.split_r2 }, [values.split_eps, values.split_r2])
 
   useEffect(() => {
-    Tf.current = SPLIT.Tamb; blown.current = false; setBlownUI(false); t.current = 0
+    Tf.current = SPLIT.Tamb; blown.current = false; t.current = 0
     resetLive({ aLabel: '維生支路 I2', aColor: '#2e9e6b', bLabel: '總電流 I_total', bColor: '#d23b3b', yMin: 0, yMax: 4, yUnit: 'A', targetY: SPLIT.i2Target })
   }, [resetToken])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const { i1, i2, iTotal } = splitCurrents(epsRef.current, r2Ref.current)
     const i2OK = Math.abs(i2 - SPLIT.i2Target) <= SPLIT.tol
     const i1OK = i1 >= SPLIT.i1Lo && i1 <= SPLIT.i1Hi
-    if (running && !blown.current) {
-      Tf.current = stepFuse(Tf.current, iTotal, 1 / 60)
-      t.current += 1 / 60
-      if (Tf.current >= SPLIT.Tblow) { blown.current = true; setBlownUI(true); live.status = 'fail'; live.readout = ['✗ 主保險絲熔斷！總電流過大', `I_total = ${iTotal.toFixed(2)} A`]; setRunning(false) }
-      if (!blown.current && i2OK && i1OK && iTotal <= SPLIT.fuse && t.current >= 2 && settle(`${epsRef.current}|${r2Ref.current}`, dragging)) { live.status = 'done'; setSolved('split') }
+    const stable = settle(`${epsRef.current}|${r2Ref.current}`, dragging, running ? delta : 0)
+    advance(delta, running && !blown.current, (dt) => {
+      Tf.current = stepFuse(Tf.current, iTotal, dt)
+      t.current += dt
+      if (Tf.current >= SPLIT.Tblow) { blown.current = true; setBlownToken(resetToken); live.status = 'fail'; live.readout = ['✗ 主保險絲熔斷！總電流過大', `I_total = ${iTotal.toFixed(2)} A`]; setRunning(false) }
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +i2.toFixed(3), b: +iTotal.toFixed(3) })
-    }
+    })
+    if (running && !blown.current && i2OK && i1OK && iTotal <= SPLIT.fuse && t.current >= 2 && stable) { live.status = 'done'; setSolved('split') }
     if (live.status !== 'fail' && live.status !== 'done') live.status = running ? 'run' : 'idle'
     const vBus = splitCurrents(epsRef.current, r2Ref.current).vBus
     if (live.status !== 'fail') live.readout = [

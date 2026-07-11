@@ -71,8 +71,10 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
   era: ChallengeId; accent?: string; camera?: [number, number, number]; children: ReactNode
 }) {
   const cam = useThree((s) => s.camera)
+  const viewportWidth = useThree((s) => s.size.width)
   const { dragging } = useGame()
   const theme = ERAS[era]
+  const lowTier = viewportWidth < 760
   const wood = useMemo(() => woodTexture(theme.desk), [theme.desk])
 
   useEffect(() => {
@@ -88,7 +90,7 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
       <OrbitControls enabled={!dragging} enablePan={false} minDistance={4} maxDistance={16} maxPolarAngle={Math.PI * 0.52} target={[0, 1.1, 0]} />
 
       {/* 程序式環境（給金屬/玻璃反射；色溫跟年代走） */}
-      <Environment resolution={256} frames={1}>
+      <Environment resolution={lowTier ? 128 : 256} frames={1}>
         <Lightformer intensity={theme.dark ? 0.7 : 1.8} position={[0, 6, -6]} scale={[16, 9, 1]} color={theme.keyColor} />
         <Lightformer intensity={0.8} position={[-8, 3, 3]} scale={[9, 9, 1]} color={theme.fillColor} />
         <Lightformer intensity={0.7} position={[8, 3, 2]} scale={[9, 9, 1]} color={theme.windowGlow} />
@@ -96,7 +98,7 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
 
       <ambientLight intensity={theme.ambient} />
       <hemisphereLight args={[theme.keyColor, theme.bg, theme.dark ? 0.18 : 0.4]} />
-      <directionalLight position={[5, 9, 6]} intensity={theme.keyIntensity} color={theme.keyColor} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0001}>
+      <directionalLight position={[5, 9, 6]} intensity={theme.keyIntensity} color={theme.keyColor} castShadow={!lowTier} shadow-mapSize={lowTier ? [512, 512] : [2048, 2048]} shadow-bias={-0.0001}>
         <orthographicCamera attach="shadow-camera" args={[-12, 12, 12, -12, 0.1, 40]} />
       </directionalLight>
       <directionalLight position={[-6, 5, -3]} intensity={0.25} color={theme.fillColor} />
@@ -141,7 +143,7 @@ export function RoomShell({ era, accent = '#1f6feb', camera = [0, 2.6, 8.5], chi
       {theme.candle && <Candle pos={[4.8, 0.25, -1.8]} />}
 
       {/* 柔和接觸陰影 */}
-      <ContactShadows position={[0, 0.02, 0]} opacity={theme.dark ? 0.6 : 0.45} scale={24} blur={2.6} far={5} resolution={1024} color="#000508" />
+      {!lowTier && <ContactShadows position={[0, 0.02, 0]} opacity={theme.dark ? 0.6 : 0.45} scale={24} blur={2.6} far={5} resolution={1024} color="#000508" />}
 
       {/* 神秘紙條（海龜湯環境敘事） */}
       <MysteryNote era={era} />

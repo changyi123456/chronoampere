@@ -15,6 +15,7 @@ import { COLORS, ERAS } from '../theme'
 import { EM, emEstimate } from '../game/physics'
 import * as audio from '../game/audio'
 import { setTouchMove, isCoarsePointer } from '../game/touch'
+import { ACTS, ENDINGS, EPISODES, HYPOTHESES } from '../story/narrative'
 
 const CH_IDS = CHALLENGE_ORDER
 function isChallenge(s: Scene): s is ChallengeId { return (CH_IDS as string[]).includes(s) }
@@ -46,10 +47,10 @@ const GUIDE = {
   accent: COLORS.teal,
   lines: [
     '我是 AMP，時光電弧儀的導引體，會一路陪著你。',
-    '任務：走進六道時光之門，重現歐姆、克希何夫、湯姆森、布勞恩、法拉第與變壓器時代的實驗。',
-    '每重現一項實驗，我會出一道選擇題；答對就能取得那個年代的「殘頁」。',
-    '殘頁會釘上「證據牆」。你可以在那裡向我提問——但我只回答「是」「否」或「與真相無關」，而且次數有限。',
-    '集滿六張殘頁、問對問題，回到中央光環，我們一起拼出那張神秘紙條的真相。',
+    '六個年代分別保存時光電弧儀的調節、分流、導航、顯示、感應與耦合原理。',
+    '每關先鎖定一項假說，再用實驗驗證；完成後，你必須決定要在歷史裡留下什麼。',
+    '殘頁會釘上證據牆。除了向我提問，你也能提交完整假說，讓證據支持或推翻它。',
+    '導師留下三段互相矛盾的紀錄。每修復兩個模組，就能還原下一段。',
     '移動：WASD／方向鍵；靠近門按 E 進入。隨時點我、開「任務日誌」或「證據牆」。',
   ],
 }
@@ -89,31 +90,45 @@ function IntroOverlay() {
       <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(135% 95% at 50% 24%, rgba(3,4,10,0) 32%, rgba(3,4,10,0.6) 100%)' }} />
       <div style={{ position: 'absolute', top: '11%', left: 0, right: 0, textAlign: 'center' }}>
         <div style={{ fontFamily: 'var(--font-display)', color: COLORS.teal, fontSize: 16, letterSpacing: 10, textShadow: `0 0 20px ${COLORS.teal}` }}>CHRONOAMPERE</div>
-        <h1 style={{ fontFamily: 'var(--font-display)', margin: '14px 0 0', fontSize: 'clamp(42px,7vw,78px)', letterSpacing: 12, color: '#eaf6ff', fontWeight: 900, textShadow: '0 0 30px rgba(94,234,212,0.6), 0 6px 22px rgba(0,0,0,0.65)' }}>電的時光旅人</h1>
+        <h1 className="intro-title" style={{ fontFamily: 'var(--font-display)', margin: '14px 0 0', fontSize: 'clamp(42px,7vw,78px)', letterSpacing: 12, color: '#eaf6ff', fontWeight: 900, textShadow: '0 0 30px rgba(94,234,212,0.6), 0 6px 22px rgba(0,0,0,0.65)' }}>電的時光旅人</h1>
         <div style={{ marginTop: 12, color: '#9fb4cc', fontSize: 15, letterSpacing: 4 }}>穿越時空的科學史探險</div>
       </div>
       <div style={{ position: 'absolute', bottom: '11%', left: 0, right: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
         <button style={startBtn} onClick={() => { audio.unlock(); audio.startBgm(); setScene('hub') }}>{solvedCount > 0 ? '繼續旅程 ▶' : '啟動時光電弧儀 ▶'}</button>
         <button style={ghostBtn} onClick={() => { audio.unlock(); setDialogue({ speaker: '時光電弧儀・任務簡報', accent: COLORS.teal, lines: PROLOGUE.lines }) }}>劇情簡介</button>
-        <div style={{ marginTop: 6, color: '#7c8aa0', fontSize: 12, letterSpacing: 1 }}>WASD／方向鍵移動 ・ 走近時光之門按 E 進入 ・ 場上的 AMP 會引導你</div>
+        <div className="intro-help" style={{ marginTop: 6, color: '#7c8aa0', fontSize: 12, letterSpacing: 1 }}>WASD／方向鍵移動 ・ 走近時光之門按 E 進入 ・ 場上的 AMP 會引導你</div>
       </div>
     </div>
   )
 }
 
 function HubOverlay() {
-  const { solvedCount, allSolved, nearDoor, setScene, resetProgress, setDialogue, setJournalOpen, setEvidenceOpen, muted, toggleMuted } = useGame()
+  const { solvedCount, fragmentCount, notesCount, leftNotes, storyReady, currentAct, nearDoor, setScene, resetProgress, setDialogue, setJournalOpen, setEvidenceOpen, muted, toggleMuted } = useGame()
   const mobile = useIsMobile()
   const coarse = isCoarsePointer()
   return (
     <>
       <div style={{ ...topBar, ...(mobile ? mTop : null), pointerEvents: 'auto' }}>
         <b style={{ color: COLORS.teal, fontFamily: 'var(--font-display)', letterSpacing: 2 }}>CHRONOAMPERE</b>
-        <span style={{ color: COLORS.dim, marginLeft: 12 }}>重現實驗進度 {solvedCount} / 6</span>
+        <span style={{ color: COLORS.dim, marginLeft: 12 }}>{currentAct.title} · 實驗 {solvedCount}/6 · 殘頁 {fragmentCount}/6</span>
         <div style={{ flex: 1 }} />
         <ProgressDots />
         <button style={miniBtn} onClick={toggleMuted}>{muted ? '♪ 靜音中' : '♪ 音效開'}</button>
         <button style={miniBtn} onClick={resetProgress}>重置進度</button>
+      </div>
+
+      <div className="act-brief" style={{ pointerEvents: 'none' }}>
+        <div className="act-kicker">{currentAct.subtitle}</div>
+        <div className="act-question">{currentAct.question}</div>
+        <div className="act-directive">{currentAct.directive}</div>
+        <div className="module-rail">
+          {CHALLENGE_ORDER.map((id) => {
+            const episode = EPISODES[id]
+            const active = !!leftNotes[id]
+            return <span key={id} className={active ? 'module-chip is-online' : 'module-chip'} style={{ '--module-color': CHALLENGES[id].doorColor } as React.CSSProperties}>{active ? '◆' : '◇'} {episode.moduleName}</span>
+          })}
+        </div>
+        <div className="loop-status">因果閉合進度 {notesCount}/6</div>
       </div>
 
       {/* RPG 工具列（觸控時移到右下，避開左下虛擬搖桿） */}
@@ -131,9 +146,9 @@ function HubOverlay() {
           {coarse ? <>點一下 <b style={{ color: COLORS.amber }}>{CHALLENGES[nearDoor].title}</b> 之門進入</> : <>按 <kbd style={kbd}>E</kbd> 進入：{CHALLENGES[nearDoor].title}</>}
         </div>
       )}
-      {allSolved && (
+      {storyReady && (
         <div style={{ ...centerBottom, pointerEvents: 'auto' }}>
-          <button style={btn(COLORS.rose)} onClick={() => setScene('finale')}>▶ 啟動時光電弧儀・拼出真相</button>
+          <button style={btn(COLORS.rose)} onClick={() => setScene('finale')}>▶ 六模組同步・進入最終推理</button>
         </div>
       )}
     </>
@@ -141,14 +156,14 @@ function HubOverlay() {
 }
 
 function ProgressDots() {
-  const { solved } = useGame()
+  const { solved, fragments, leftNotes } = useGame()
   return (
     <div style={{ display: 'flex', gap: 6, marginRight: 12 }}>
       {CHALLENGE_ORDER.map((id) => (
         <span key={id} title={CHALLENGES[id].title} style={{
           width: 12, height: 12, borderRadius: 3,
-          background: solved[id] ? COLORS.green : 'transparent',
-          border: `1px solid ${solved[id] ? COLORS.green : COLORS.dim}`,
+          background: fragments[id] ? COLORS.amber : leftNotes[id] ? COLORS.teal : solved[id] ? COLORS.green : 'transparent',
+          border: `1px solid ${fragments[id] ? COLORS.amber : leftNotes[id] ? COLORS.teal : solved[id] ? COLORS.green : COLORS.dim}`,
         }} />
       ))}
     </div>
@@ -156,8 +171,9 @@ function ProgressDots() {
 }
 
 function RoomOverlay({ id }: { id: ChallengeId }) {
-  const { values, patch, setScene, solved, running, setRunning, doReset, muted, toggleMuted, emLog } = useGame()
+  const { values, patch, setScene, solved, fragments, predictions, running, setRunning, doReset, muted, toggleMuted, emLog } = useGame()
   const meta = CHALLENGES[id]
+  const episode = EPISODES[id]
   const res = getSolve(id, values, emLog)
   const done = !!solved[id]
   const mobile = useIsMobile()
@@ -167,7 +183,7 @@ function RoomOverlay({ id }: { id: ChallengeId }) {
       <div style={{ ...topBar, ...(mobile ? mTop : null) }}>
         <button style={miniBtn} onClick={() => setScene('hub')}>◀ 返回時光樞紐</button>
         <span style={{ color: COLORS.teal, marginLeft: 14, fontWeight: 700 }}>{meta.system}</span>
-        <span style={{ color: COLORS.dim, marginLeft: 10, fontSize: 12 }}>{meta.chapter}</span>
+        <span style={{ color: COLORS.dim, marginLeft: 10, fontSize: 12 }}>{episode.moduleName}・{meta.chapter}</span>
         <div style={{ flex: 1 }} />
         <button style={miniBtn} onClick={toggleMuted}>{muted ? '♪ 靜音中' : '♪ 音效開'}</button>
       </div>
@@ -186,7 +202,7 @@ function RoomOverlay({ id }: { id: ChallengeId }) {
 
       <div style={{ ...panel, ...(mobile ? mPanel : null), pointerEvents: 'auto' }}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button style={{ ...bigBtn, background: running ? COLORS.amber : COLORS.green }} onClick={() => setRunning(!running)}>{running ? '⏸ 暫停' : '▶ 啟動'}</button>
+          <button disabled={predictions[id] === undefined && !fragments[id]} style={{ ...bigBtn, opacity: predictions[id] === undefined && !fragments[id] ? 0.45 : 1, background: running ? COLORS.amber : COLORS.green }} onClick={() => setRunning(!running)}>{running ? '⏸ 暫停' : '▶ 啟動'}</button>
           <button style={{ ...bigBtn, background: COLORS.rose }} onClick={doReset}>↺ 重置</button>
         </div>
         {SLIDERS[id].length === 0 && (
@@ -207,7 +223,38 @@ function RoomOverlay({ id }: { id: ChallengeId }) {
       </div>
 
       {done && <FragmentQuiz id={id} meta={meta} />}
+      {predictions[id] === undefined && !fragments[id] && <FieldProtocol id={id} />}
     </>
+  )
+}
+
+function FieldProtocol({ id }: { id: ChallengeId }) {
+  const { recordPrediction } = useGame()
+  const episode = EPISODES[id]
+  const act = ACTS[episode.act - 1]
+  return (
+    <Fill>
+      <div className="protocol-card">
+        <div className="protocol-act">{act.title} ／ FIELD PROTOCOL</div>
+        <h2>{CHALLENGES[id].title}</h2>
+        <div className="module-purpose"><b>{episode.moduleName}</b><span>{episode.moduleFunction}</span></div>
+        <div className="arrival-copy">{episode.arrival.map((line) => <p key={line}>{line}</p>)}</div>
+        <div className="mentor-log">
+          <div className="mentor-log-label">◈ {episode.mentorLog.title}</div>
+          {episode.mentorLog.lines.map((line) => <p key={line}>{line}</p>)}
+        </div>
+        <div className="prediction-title">先鎖定你的實驗假說</div>
+        <div className="prediction-question">{episode.prediction.question}</div>
+        <div className="prediction-grid">
+          {episode.prediction.options.map((option, index) => (
+            <button key={option} className="prediction-option" onClick={() => recordPrediction(id, index)}>
+              <span>{String.fromCharCode(65 + index)}</span>{option}
+            </button>
+          ))}
+        </div>
+        <div className="protocol-note">選擇會被鎖定；實驗完成後才會揭示推論是否成立。</div>
+      </div>
+    </Fill>
   )
 }
 
@@ -227,7 +274,7 @@ function EmRecorder() {
       </div>
       {emLog.slice(-4).map((s, i) => (
         <div key={i} style={{ fontSize: 11.5, fontFamily: 'ui-monospace, monospace', color: COLORS.text }}>
-          #{emLog.length - Math.min(emLog.length, 4) + i + 1}　V={s.V.toFixed(0)}V　I={s.I.toFixed(2)}A　r={(s.r * 100).toFixed(2)}cm　e/m={s.est.toExponential(2)}
+          #{emLog.length - Math.min(emLog.length, 4) + i + 1} · V={s.V.toFixed(0)}V · I={s.I.toFixed(2)}A · r={(s.r * 100).toFixed(2)}cm · e/m={s.est.toExponential(2)}
         </div>
       ))}
       {est !== null && (
@@ -241,24 +288,35 @@ function EmRecorder() {
 
 // 碎片選擇題：以 AMP 的 RPG 對話框呈現
 function FragmentQuiz({ id, meta }: { id: ChallengeId; meta: ChallengeMeta }) {
-  const { fragments, setFragment, setScene } = useGame()
+  const { fragments, leftNotes, predictions, leaveNote, setFragment, setScene } = useGame()
+  const episode = EPISODES[id]
   const collected = !!fragments[id]
+  const noteLeft = !!leftNotes[id]
   const [picked, setPicked] = useState<number | null>(null)
   const q = meta.quiz
   const isCorrect = picked === q.correct
+  const predicted = predictions[id]
+  const predictionCorrect = predicted === episode.prediction.correct
 
   if (collected) {
     return (
       <DialogueBox speaker="時光導引體 AMP" accent={COLORS.amber} dim
         footer={<button style={btn(COLORS.teal)} onClick={() => setScene('hub')}>返回時光樞紐 ▶</button>}>
-        <div style={{ color: COLORS.amber, fontSize: 13, marginBottom: 6 }}>{meta.clueTag}・已收藏</div>
-        <div style={{ lineHeight: 1.8 }}>{meta.clue}</div>
+        <div style={{ color: COLORS.amber, fontSize: 13, marginBottom: 6 }}>{episode.moduleName} ONLINE・{meta.clueTag} 已收藏</div>
+        <div style={{ lineHeight: 1.8 }}>{episode.evidence.body}</div>
       </DialogueBox>
     )
   }
   return (
     <DialogueBox speaker="時光導引體 AMP" accent={COLORS.green} dim>
-      <div style={{ color: COLORS.green, fontWeight: 700, marginBottom: 6 }}>實驗重現成功！答對問題就能取得 {meta.clueTag}。</div>
+      <div style={{ color: COLORS.green, fontWeight: 700, marginBottom: 6 }}>實驗重現成功・{episode.moduleName} 校準完成</div>
+      <div className={predictionCorrect ? 'prediction-result is-correct' : 'prediction-result'}>
+        <b>{predictionCorrect ? '原始假說成立' : '原始假說需要修正'}</b>
+        <span>{episode.prediction.explain}</span>
+      </div>
+      <div style={{ margin: '10px 0', padding: '10px 12px', borderLeft: `3px solid ${COLORS.teal}`, background: 'rgba(8,22,30,0.52)', lineHeight: 1.7 }}>
+        <b style={{ color: COLORS.teal }}>{episode.observation.title}</b><br />{episode.observation.body}
+      </div>
       <div style={{ marginBottom: 10, lineHeight: 1.7 }}>{q.q}</div>
       <div style={{ display: 'grid', gap: 8 }}>
         {q.options.map((o, i) => {
@@ -275,10 +333,22 @@ function FragmentQuiz({ id, meta }: { id: ChallengeId; meta: ChallengeMeta }) {
       {isCorrect && (
         <>
           <div style={{ marginTop: 12, color: COLORS.green, lineHeight: 1.7 }}>✓ 正確！{q.explain}</div>
-          <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(30,24,10,0.5)', border: `1px solid ${COLORS.amber}`, borderRadius: 10, lineHeight: 1.75 }}>
-            <b style={{ color: COLORS.amber }}>{meta.clueTag}</b>　{meta.clue}
-          </div>
-          <button style={btn(COLORS.teal)} onClick={() => { setFragment(id); setScene('hub') }}>收下殘頁，返回 ▶</button>
+          {!noteLeft ? (
+            <div className="note-closure">
+              <div className="note-closure-label">CAUSAL ACTION・你必須親手完成歷史紀錄</div>
+              <p>{episode.noteAction.prompt}</p>
+              <blockquote>{episode.noteAction.inscription}</blockquote>
+              <button style={btn(COLORS.amber)} onClick={() => leaveNote(id)}>執筆並把紙條留在桌上</button>
+            </div>
+          ) : (
+            <>
+              <div className="note-consequence">{episode.noteAction.consequence}</div>
+              <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(45,32,12,0.74)', border: `1px solid ${COLORS.amber}`, borderRadius: 10, lineHeight: 1.75 }}>
+                <b style={{ color: COLORS.amber }}>{episode.evidence.title}</b> · {episode.evidence.body}
+              </div>
+              <button style={btn(COLORS.teal)} onClick={() => { setFragment(id); setScene('hub') }}>封存證據・啟動 {episode.moduleName} ▶</button>
+            </>
+          )}
         </>
       )}
     </DialogueBox>
@@ -350,32 +420,42 @@ function Readout() {
 }
 
 function FinaleOverlay() {
-  const { resetProgress, finaleWrong, bumpFinaleWrong, askedIds } = useGame()
+  const { resetProgress, finaleWrong, bumpFinaleWrong, askedIds, testedHypotheses, endingChoice, chooseEnding } = useGame()
   const [picked, setPicked] = useState<string | null>(null)
   const chosen = FINALE.options.find((o) => o.key === picked)
   const correct = chosen?.correct
   const askedQs = SOUP_QUESTIONS.filter((q) => askedIds.includes(q.id))
+  const ending = endingChoice ? ENDINGS[endingChoice] : null
   return (
     <Fill>
-      <div style={card(660)}>
-        <Corners color={COLORS.teal} />
-        {!correct ? (
+      <div className="finale-card" style={card(720)}>
+        <Corners color={ending?.color ?? COLORS.teal} />
+        {ending ? (
+          <>
+            <div style={{ color: ending.color, fontSize: 13, letterSpacing: 3 }}>ENDING・{ending.principle}</div>
+            <h2 style={{ color: COLORS.text, margin: '8px 0 14px' }}>{ending.title}</h2>
+            <div className="ending-epilogue">{ending.epilogue.map((line) => <p key={line}>{line}</p>)}</div>
+            <div className="ending-seal" style={{ borderColor: ending.color, color: ending.color }}>CHRONOAMPERE ／ {ending.title}</div>
+            <button style={btn(COLORS.teal)} onClick={resetProgress}>↺ 從另一個選擇重新展開旅程</button>
+          </>
+        ) : !correct ? (
           <>
             <div style={{ color: COLORS.rose, fontSize: 13, letterSpacing: 3 }}>時間迴圈・最終推理</div>
             <details style={{ margin: '10px 0 6px' }}>
               <summary style={{ cursor: 'pointer', color: COLORS.amber, fontSize: 13 }}>殘頁回顧（六張）</summary>
               {CHALLENGE_ORDER.map((cid) => (
                 <div key={cid} style={{ fontSize: 12.5, color: COLORS.dim, margin: '6px 0', lineHeight: 1.6 }}>
-                  <b style={{ color: COLORS.teal }}>{CHALLENGES[cid].clueTag}</b>　{CHALLENGES[cid].clue}
+                  <b style={{ color: COLORS.teal }}>{EPISODES[cid].evidence.title}</b> · {EPISODES[cid].evidence.body}
                 </div>
               ))}
             </details>
+            {testedHypotheses.length > 0 && <div className="final-hypotheses">已檢定假說 {testedHypotheses.length}/{HYPOTHESES.length}</div>}
             {askedQs.length > 0 && (
               <details style={{ margin: '6px 0' }}>
                 <summary style={{ cursor: 'pointer', color: COLORS.teal, fontSize: 13 }}>問答回顧（{askedQs.length} 則）</summary>
                 {askedQs.map((q) => (
                   <div key={q.id} style={{ fontSize: 12.5, color: COLORS.dim, margin: '6px 0', lineHeight: 1.6 }}>
-                    {q.text}　<b style={{ color: q.answer === 'yes' ? COLORS.green : q.answer === 'no' ? COLORS.rose : COLORS.dim }}>
+                    {q.text} · <b style={{ color: q.answer === 'yes' ? COLORS.green : q.answer === 'no' ? COLORS.rose : COLORS.dim }}>
                       {q.answer === 'yes' ? '是' : q.answer === 'no' ? '否' : '與真相無關'}</b>
                   </div>
                 ))}
@@ -397,10 +477,18 @@ function FinaleOverlay() {
           </>
         ) : (
           <>
-            <div style={{ color: COLORS.green, fontSize: 13, letterSpacing: 3 }}>真相揭曉</div>
+            <div style={{ color: COLORS.green, fontSize: 13, letterSpacing: 3 }}>真相成立・最後授權</div>
             <h2 style={{ color: COLORS.text, margin: '8px 0 14px' }}>沒有起點的紙條</h2>
             <div style={{ color: COLORS.dim, fontSize: 15, lineHeight: 1.95, whiteSpace: 'pre-wrap' }}>{FINALE.reveal.join('\n')}</div>
-            <button style={btn(COLORS.teal)} onClick={resetProgress}>↺ 重新展開旅程</button>
+            <div className="ending-grid">
+              {Object.values(ENDINGS).map((option) => (
+                <button key={option.id} className="ending-choice" style={{ '--ending-color': option.color } as React.CSSProperties} onClick={() => chooseEnding(option.id)}>
+                  <span>{option.principle}</span>
+                  <b>{option.title}</b>
+                  <p>{option.choice}</p>
+                </button>
+              ))}
+            </div>
           </>
         )}
       </div>
@@ -461,7 +549,7 @@ function DialogueLayer() {
 
 // ── 任務日誌彈窗 ─────────────────────────────────────────────────────────
 function JournalLayer() {
-  const { journalOpen, setJournalOpen, solved, fragments } = useGame()
+  const { journalOpen, setJournalOpen, solved, fragments, leftNotes, fragmentCount, currentAct } = useGame()
   if (!journalOpen) return null
   return (
     <Fill>
@@ -472,20 +560,31 @@ function JournalLayer() {
           <div style={{ flex: 1 }} />
           <button style={miniBtn} onClick={() => setJournalOpen(false)}>✕ 關閉</button>
         </div>
-        <div style={{ color: COLORS.dim, fontSize: 13, lineHeight: 1.7, marginBottom: 14, padding: '10px 12px', background: 'rgba(20,16,8,0.5)', border: `1px solid ${COLORS.amber}55`, borderRadius: 10 }}>
-          <b style={{ color: COLORS.amber }}>主線謎題</b>　六個年代、六位互不相識的科學家，筆記裡都夾著同一張字跡相同的紙條，每人都說「它一直都在」。它從何而來？
+        <div className="journal-act">
+          <b>{currentAct.title}・{currentAct.subtitle}</b>
+          <span>{currentAct.question}</span>
+          <small>{currentAct.directive}</small>
+        </div>
+        <div className="transmission-stack">
+          {ACTS.filter((act) => act.unlockAt <= fragmentCount).map((act) => (
+            <details key={act.id} open={act.id === currentAct.id}>
+              <summary>導師加密紀錄 0{act.id}</summary>
+              {act.transmission.map((line) => <p key={line}>{line}</p>)}
+            </details>
+          ))}
         </div>
         {CHALLENGE_ORDER.map((cid, i) => {
           const m = CHALLENGES[cid]
+          const episode = EPISODES[cid]
           const sv = !!solved[cid]; const fr = !!fragments[cid]
           return (
             <div key={cid} style={{ display: 'flex', gap: 10, padding: '10px 0', borderTop: i ? '1px solid #1c2740' : 'none' }}>
               <div style={{ flex: '0 0 auto', width: 26, height: 26, borderRadius: 8, background: fr ? COLORS.green : sv ? COLORS.amber : 'transparent', border: `1px solid ${fr ? COLORS.green : sv ? COLORS.amber : COLORS.dim}`, color: '#06121f', fontWeight: 800, display: 'grid', placeItems: 'center', fontSize: 13 }}>{i + 1}</div>
               <div style={{ flex: 1 }}>
                 <div style={{ color: COLORS.text, fontSize: 14, fontWeight: 600 }}>{m.title}</div>
-                <div style={{ color: COLORS.dim, fontSize: 12, marginTop: 2 }}>{m.chapter}</div>
+                <div style={{ color: COLORS.dim, fontSize: 12, marginTop: 2 }}>{episode.moduleName}・{episode.moduleFunction}</div>
                 <div style={{ fontSize: 12.5, marginTop: 4, color: fr ? COLORS.text : COLORS.dim }}>
-                  {fr ? <><b style={{ color: COLORS.teal }}>{m.clueTag}</b>　{m.clue}</> : sv ? '已重現實驗，尚未取得殘頁（回去答題）' : '尚未重現'}
+                  {fr ? <><b style={{ color: COLORS.teal }}>{m.clueTag}</b> · {episode.evidence.title}</> : leftNotes[cid] ? '已留下紙條，等待封存證據' : sv ? '實驗完成，尚未閉合本年代的因果紀錄' : '尚未重現'}
                 </div>
               </div>
             </div>
@@ -498,7 +597,7 @@ function JournalLayer() {
 
 // ── 證據牆＋海龜湯提問（玩家主動提問，AMP 只答 是/否/與真相無關） ─────────
 function EvidenceLayer() {
-  const { evidenceOpen, setEvidenceOpen, fragments, askedIds, askQuestion } = useGame()
+  const { evidenceOpen, setEvidenceOpen, fragments, askedIds, testedHypotheses, askQuestion, testHypothesis } = useGame()
   if (!evidenceOpen) return null
   const fragCount = CHALLENGE_ORDER.filter((id) => fragments[id]).length
   const left = QUESTION_BUDGET - askedIds.length
@@ -506,7 +605,7 @@ function EvidenceLayer() {
     a === 'yes' ? { t: '是', c: COLORS.green } : a === 'no' ? { t: '否', c: COLORS.rose } : { t: '與真相無關', c: COLORS.dim }
   return (
     <Fill>
-      <div style={{ ...card(680), border: `2px solid ${COLORS.rose}` }}>
+      <div className="evidence-board" style={{ ...card(760), border: `2px solid ${COLORS.rose}` }}>
         <Corners color={COLORS.rose} />
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
           <h2 style={{ margin: 0, color: COLORS.text }}>證據牆</h2>
@@ -515,7 +614,7 @@ function EvidenceLayer() {
           <button style={miniBtn} onClick={() => setEvidenceOpen(false)}>✕ 關閉</button>
         </div>
         <div style={{ color: COLORS.dim, fontSize: 12.5, lineHeight: 1.7, marginBottom: 12 }}>
-          這是一場海龜湯：對 AMP 提問，它只會回答<b style={{ color: COLORS.green }}>「是」</b>、<b style={{ color: COLORS.rose }}>「否」</b>或<b>「與真相無關」</b>。提問額度有限——問之前，先想好你的假設。
+          對 AMP 提問取得單一事實，再把多張殘頁組成可被支持或推翻的假說。真正的進展不是收集答案，而是排除無法同時解釋所有證據的模型。
         </div>
 
         {/* 已釘上的殘頁 */}
@@ -523,21 +622,38 @@ function EvidenceLayer() {
           {CHALLENGE_ORDER.map((cid) => {
             const m = CHALLENGES[cid]; const got = !!fragments[cid]
             return (
-              <div key={cid} style={{
-                padding: '8px 10px', borderRadius: 8, fontSize: 11.5, lineHeight: 1.55, minHeight: 56,
-                background: got ? 'rgba(45,36,16,0.6)' : 'rgba(12,18,32,0.5)',
-                border: `1px dashed ${got ? COLORS.amber : '#2b3a52'}`, color: got ? '#e8ddc2' : '#41506a',
-                transform: `rotate(${(cid.charCodeAt(0) % 5 - 2) * 0.8}deg)`,
-              }}>
+              <div key={cid} className={got ? 'evidence-note is-found' : 'evidence-note'} style={{ transform: `rotate(${(cid.charCodeAt(0) % 5 - 2) * 0.8}deg)` }}>
                 <b style={{ color: got ? COLORS.amber : '#41506a' }}>{m.clueTag}</b><br />
-                {got ? m.clue : '（尚未取得——回到時光之門重現實驗）'}
+                {got ? <><strong>{EPISODES[cid].evidence.title}</strong><span>{EPISODES[cid].evidence.body}</span></> : '（尚未取得——回到時光之門重現實驗）'}
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="evidence-section-title">◇ 假說檢定</div>
+        <div className="hypothesis-grid">
+          {HYPOTHESES.map((hypothesis) => {
+            const locked = fragCount < hypothesis.unlockAt
+            const tested = testedHypotheses.includes(hypothesis.id)
+            const tone = hypothesis.verdict === 'supported' ? COLORS.green : hypothesis.verdict === 'rejected' ? COLORS.rose : COLORS.amber
+            return (
+              <div key={hypothesis.id} className={tested ? 'hypothesis-card is-tested' : 'hypothesis-card'}>
+                <div className="hypothesis-title">{locked ? '🔒 未解鎖假說' : hypothesis.title}</div>
+                <p>{locked ? `需要 ${hypothesis.unlockAt} 張殘頁才能建立模型。` : hypothesis.statement}</p>
+                {tested ? (
+                  <div className="hypothesis-result" style={{ borderColor: tone, color: tone }}>
+                    {hypothesis.verdict === 'supported' ? '支持' : hypothesis.verdict === 'rejected' ? '排除' : '部分成立'}・{hypothesis.result}
+                  </div>
+                ) : (
+                  <button disabled={locked} style={{ ...miniBtn, opacity: locked ? 0.4 : 1 }} onClick={() => testHypothesis(hypothesis.id)}>提交證據檢定</button>
+                )}
               </div>
             )
           })}
         </div>
 
         {/* 提問區 */}
-        <div style={{ fontSize: 13, color: COLORS.teal, fontWeight: 700, marginBottom: 6 }}>◇ 向 AMP 提問</div>
+        <div className="evidence-section-title">◇ 向 AMP 提問</div>
         {SOUP_QUESTIONS.map((q) => {
           const asked = askedIds.includes(q.id)
           const locked = fragCount < q.unlockAt
@@ -616,7 +732,7 @@ function TouchJoystick() {
 
 // ── 樣式 ────────────────────────────────────────────────────────────────
 function Fill({ children, dim = true }: { children: React.ReactNode; dim?: boolean }) {
-  return <div style={{ position: 'absolute', inset: 0, zIndex: 90000000, display: 'grid', placeItems: 'center', background: dim ? 'rgba(4,6,12,0.82)' : 'radial-gradient(120% 120% at 50% 38%, rgba(4,6,12,0.12) 0%, rgba(4,6,12,0.82) 100%)', pointerEvents: 'auto', padding: 20 }}>{children}</div>
+  return <div className="screen-fill" style={{ position: 'absolute', inset: 0, zIndex: 90000000, display: 'grid', placeItems: 'center', background: dim ? 'rgba(4,6,12,0.82)' : 'radial-gradient(120% 120% at 50% 38%, rgba(4,6,12,0.12) 0%, rgba(4,6,12,0.82) 100%)', pointerEvents: 'auto', padding: 20 }}>{children}</div>
 }
 
 function Corners({ color }: { color: string }) {

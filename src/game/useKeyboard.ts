@@ -47,11 +47,16 @@ export function useKeyboard() {
     }
     const onDown = (e: KeyboardEvent) => set(e.code, true)
     const onUp = (e: KeyboardEvent) => set(e.code, false)
+    const clear = () => {
+      keys.current = { forward: false, backward: false, left: false, right: false, interact: false }
+    }
     window.addEventListener('keydown', onDown)
     window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', clear)
     return () => {
       window.removeEventListener('keydown', onDown)
       window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', clear)
     }
   }, [])
 

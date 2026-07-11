@@ -11,6 +11,7 @@ import { RoomShell } from '../components/RoomShell'
 import { Knob } from '../components/lab'
 import { useGame } from '../store/store'
 import { useSettle } from '../game/useSettle'
+import { useFixedStep } from '../game/useFixedStep'
 import {
   emVelocity, emField, emRadius, emEstimate, emMeasurementOK, EM,
   crtDeflect, crtBalance, CRT,
@@ -34,6 +35,7 @@ export function CycloRoom() {
   const frame = useRef(0)
   const electrons = useRef<THREE.Group>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   const VRef = useRef(values.emacc_V)
   const IRef = useRef(values.emacc_I)
   useEffect(() => { VRef.current = values.emacc_V; IRef.current = values.emacc_I }, [values.emacc_V, values.emacc_I])
@@ -46,20 +48,20 @@ export function CycloRoom() {
   const S = 34, gunY = 0.4, cx = 0, cz = 0
   const cyc = useRef({ R: 1, done: false })
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const V = VRef.current, I = IRef.current
     const v = emVelocity(V), B = emField(I), r = emRadius(V, I)
     const vOK = Math.abs(V - EM.VaccTarget) <= EM.VaccTol
     const rOK = Math.abs(r - EM.rTarget) <= EM.rTol
     const emOK = emMeasurementOK(emLogRef.current)
-    const settled = settle(`${V}|${I}`, dragging)
-    if (running) {
-      t.current += 1 / 60
-      ang.current += 2 * (1 / 60) // 電子沿圓周動
-      if (vOK && rOK && emOK && settled) { live.status = 'done'; setSolved('cyclo') }
+    const settled = settle(`${V}|${I}`, dragging, running ? delta : 0)
+    advance(delta, running, (dt) => {
+      t.current += dt
+      ang.current += 2 * dt // 電子沿圓周動
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +Math.sin(ang.current).toFixed(3) })
-    }
+    })
+    if (running && vOK && rOK && emOK && settled) { live.status = 'done'; setSolved('cyclo') }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
     const est = emEstimate(emLogRef.current)
     if (live.status !== 'done') live.readout = [
@@ -128,6 +130,7 @@ export function MaglockRoom() {
   const frame = useRef(0)
   const spot = useRef<THREE.Mesh>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   const VaRef = useRef(values.crt_Va)
   const VdRef = useRef(values.crt_Vd)
   const BRef = useRef(values.crt_B)
@@ -151,20 +154,20 @@ export function MaglockRoom() {
     return new THREE.Line(g, new THREE.LineBasicMaterial({ color: '#4ade80' }))
   }, [])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const Va = VaRef.current, Vd = VdRef.current, Bm = BRef.current
     const { vx, ay, totalY } = crtDeflect(Va, Vd, Bm)
     const yE = crtDeflect(Va, Vd, 0).totalY
     const VaOK = Math.abs(Va - CRT.VaTarget) <= CRT.VaTol
     const yEOK = Math.abs(yE - CRT.yE_target) <= CRT.yE_tol
     const yTOK = Math.abs(totalY - CRT.yT_target) <= CRT.yT_tol
-    const settled = settle(`${Va}|${Vd}|${Bm}`, dragging)
-    if (running) {
-      t.current += 1 / 60
-      if (VaOK && yEOK && yTOK && settled) { live.status = 'done'; setSolved('maglock') }
+    const settled = settle(`${Va}|${Vd}|${Bm}`, dragging, running ? delta : 0)
+    advance(delta, running, (dt) => {
+      t.current += dt
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +(totalY * 100).toFixed(2) })
-    }
+    })
+    if (running && VaOK && yEOK && yTOK && settled) { live.status = 'done'; setSolved('maglock') }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
     const vBal = crtBalance(Va, Vd, Bm)
     if (live.status !== 'done') live.readout = [

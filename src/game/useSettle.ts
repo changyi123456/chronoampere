@@ -9,9 +9,13 @@ import { useRef } from 'react'
 export function useSettle(dwell = 0.5) {
   const sig = useRef('')
   const acc = useRef(0)
-  return (signature: string, dragging: boolean) => {
-    if (signature !== sig.current) { sig.current = signature; acc.current = 0 }
-    else acc.current += 1 / 60
+  return (signature: string, dragging: boolean, delta: number) => {
+    if (signature !== sig.current || dragging) {
+      sig.current = signature
+      acc.current = 0
+    } else {
+      acc.current += Math.min(Math.max(delta, 0), 0.1)
+    }
     return !dragging && acc.current >= dwell
   }
 }

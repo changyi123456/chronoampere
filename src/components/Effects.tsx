@@ -8,15 +8,28 @@
 import { EffectComposer, Bloom, Vignette, ChromaticAberration } from '@react-three/postprocessing'
 import type { Scene } from '../story/script'
 
-export function Effects({ scene }: { scene: Scene }) {
+export function Effects({ scene, quality }: { scene: Scene; quality: 'low' | 'high' }) {
   const warp = scene === 'intro'
+  if (quality === 'low') {
+    return (
+      <EffectComposer multisampling={0}>
+        <Bloom mipmapBlur intensity={warp ? 0.85 : 0.62} luminanceThreshold={1.1} luminanceSmoothing={0.16} />
+      </EffectComposer>
+    )
+  }
+  if (warp) {
+    return (
+      <EffectComposer multisampling={0}>
+        <Bloom mipmapBlur intensity={1.2} luminanceThreshold={1.0} luminanceSmoothing={0.2} />
+        <ChromaticAberration offset={[0.0022, 0.0014]} radialModulation modulationOffset={0.4} />
+        <Vignette eskil={false} offset={0.18} darkness={0.85} />
+      </EffectComposer>
+    )
+  }
   return (
     <EffectComposer multisampling={0}>
-      <Bloom mipmapBlur intensity={warp ? 1.2 : 0.85} luminanceThreshold={1.0} luminanceSmoothing={0.2} />
-      {warp
-        ? <ChromaticAberration offset={[0.0022, 0.0014]} radialModulation modulationOffset={0.4} />
-        : <ChromaticAberration offset={[0.0004, 0.0002]} radialModulation modulationOffset={0.8} />}
-      <Vignette eskil={false} offset={0.18} darkness={warp ? 0.85 : 0.62} />
+      <Bloom mipmapBlur intensity={0.85} luminanceThreshold={1.0} luminanceSmoothing={0.2} />
+      <Vignette eskil={false} offset={0.18} darkness={0.62} />
     </EffectComposer>
   )
 }

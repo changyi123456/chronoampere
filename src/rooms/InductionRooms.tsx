@@ -13,6 +13,7 @@ import { useGame } from '../store/store'
 import { emfMax, emfAt, fluxAt, v2Peak, xfmrPrimaryAt, xfmrSecondaryAt, xfmrLoad, INDUCTION, XFMR } from '../game/physics'
 import { resetLive, pushSample, live } from '../game/live'
 import { useSettle } from '../game/useSettle'
+import { useFixedStep } from '../game/useFixedStep'
 
 type P3 = [number, number, number]
 const COPPER = '#c0763a'
@@ -29,6 +30,7 @@ export function DynamoRoom() {
   const coil = useRef<THREE.Group>(null)
   const galv = useRef<THREE.Group>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   const NRef = useRef(values.dynamo_N)
   const wRef = useRef(values.dynamo_w)
   useEffect(() => { NRef.current = values.dynamo_N; wRef.current = values.dynamo_w }, [values.dynamo_N, values.dynamo_w])
@@ -39,21 +41,22 @@ export function DynamoRoom() {
     resetLive({ aLabel: '感應電動勢 ε(t)', aColor: '#1f6feb', bLabel: `磁通 φ(t)（×${INDUCTION.fluxPlotScale}）`, bColor: '#f59e0b', yMin: -16, yMax: 16, yUnit: 'V', targetY: INDUCTION.targetEmf })
   }, [resetToken])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const em = emfMax(NRef.current, wRef.current)
     const emOK = Math.abs(em - INDUCTION.targetEmf) <= INDUCTION.tol
     const wOK = wRef.current >= INDUCTION.wLo && wRef.current <= INDUCTION.wHi
-    if (running) {
-      theta.current += wRef.current * (1 / 60)
-      t.current += 1 / 60
-      if (emOK && wOK && settle(`${NRef.current}|${wRef.current}`, dragging)) { live.status = 'done'; setSolved('dynamo') }
+    const stable = settle(`${NRef.current}|${wRef.current}`, dragging, running ? delta : 0)
+    advance(delta, running, (dt) => {
+      theta.current += wRef.current * dt
+      t.current += dt
       frame.current++
       if (frame.current % 2 === 0) pushSample({
         t: +t.current.toFixed(2),
         a: +emfAt(NRef.current, wRef.current, t.current).toFixed(2),
         b: +(fluxAt(NRef.current, wRef.current, t.current) * INDUCTION.fluxPlotScale).toFixed(2),
       })
-    }
+    })
+    if (running && emOK && wOK && stable) { live.status = 'done'; setSolved('dynamo') }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
     if (live.status !== 'done') live.readout = [
       `匝數 N = ${NRef.current.toFixed(0)}　轉速 ω = ${wRef.current.toFixed(1)} ${wOK ? '✓' : `（需 ${INDUCTION.wLo}-${INDUCTION.wHi}）`}`,
@@ -103,6 +106,7 @@ export function XfmrRoom() {
   const secMat = useRef<THREE.MeshStandardMaterial>(null)
   const volt = useRef<THREE.Group>(null)
   const settle = useSettle()
+  const advance = useFixedStep()
   useEffect(() => { n2Ref.current = values.xfmr_n2; v1Ref.current = values.xfmr_v1 }, [values.xfmr_n2, values.xfmr_v1])
 
   useEffect(() => {
@@ -110,17 +114,18 @@ export function XfmrRoom() {
     resetLive({ aLabel: '初級 V1(t)', aColor: '#d23b3b', bLabel: '次級 V2(t)', bColor: '#6f6fe0', yMin: -160, yMax: 160, yUnit: 'V' })
   }, [resetToken])
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const v1 = v1Ref.current, n2 = n2Ref.current
     const v2pk = v2Peak(n2, v1)
     const v1OK = Math.abs(v1 - XFMR.v1Target) <= XFMR.v1Tol
     const v2OK = Math.abs(v2pk - XFMR.v2Target) <= XFMR.tol
-    if (running) {
-      t.current += 1 / 60
-      if (v1OK && v2OK && settle(`${v1}|${n2}`, dragging)) { live.status = 'done'; setSolved('xfmr') }
+    const stable = settle(`${v1}|${n2}`, dragging, running ? delta : 0)
+    advance(delta, running, (dt) => {
+      t.current += dt
       frame.current++
       if (frame.current % 2 === 0) pushSample({ t: +t.current.toFixed(2), a: +xfmrPrimaryAt(t.current, v1).toFixed(1), b: +xfmrSecondaryAt(n2, t.current, v1).toFixed(1) })
-    }
+    })
+    if (running && v1OK && v2OK && stable) { live.status = 'done'; setSolved('xfmr') }
     if (live.status !== 'done') live.status = running ? 'run' : 'idle'
     const ld = xfmrLoad(n2, v1)
     if (live.status !== 'done') live.readout = [
